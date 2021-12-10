@@ -1,0 +1,69 @@
+#+TITLE: rmrfd: The Data Incinerator
+#+AUTHOR: Christian Thäter
+#+EMAIL: ct@pipapo.org
+#+LANGUAGE: en
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [a4paper, hidelinks]
+#+LATEX_HEADER: \usepackage{enumitem}
+#+LATEX_HEADER: \setlist[description]{style=nextline}
+#+LATEX_HEADER: \parskip8pt
+#+LATEX_HEADER: \parindent0
+#+BEGIN_ABSTRACT
+Most (space) efficient way to delete files in the background on unix like operating systems.
+#+END_ABSTRACT
+#+TOC: headlines 3
+
+
+* The Problem
+
+Deleting Items from Filesystems on Unix like systems traditionally requires that one has to
+recurse into each sub-directory and unlink each entry.  This has some drawbacks.
+
+ 1. On large trees and slow storage mediums (HDD's, Network filesystems) this can take
+    considerable time (hours to days for really big trees).
+ 2. Deletion is not atomic, until the deletion process completes partial data remains in place.
+ 3. It may not free space as fast and as much as expected while running. This is especially
+    true when data is hard linked. Space is only feed after the last link to the data becomes
+    deleted.
+
+
+* Summary
+
+ * We want to free disk space in an optimal way, freeing as much as possible already at begin
+   of the deletion process.
+ * Deletion should appear to be atomic for all use cases. Once a directory is deleted, one can
+   instantly reuse its name.
+ * Even on power failures, crashes or other disruptions, eventually no stale data is left
+   behind. Deletion resumes after a reboot.
+ * The actual deletion can run in background with low priorities to allow other workload to
+   use the IO-Bandwidth.
+ * As long it frees space in a optimal way it is not so important when the complete deletion
+   process takes longer.
+
+* Plan
+
+ - We crate a system service ('rmrfd') which operates in the background and deletes
+   directories and files.
+ - Renaming/moving directories on the same Filesystem is an atomic operation. Usually this is
+   very fast. Lets use this.
+ - Every filesystem where we want to delete files 'rmrfd' gets some directories which are watched.
+ - These directories are writeable by anyone who is allowed to use the rmrfd service.
+ - When one wants to delete directory trees or files they are simply move into the
+   correspondending 'rmrfd' directory.
+ - The daemon detects the added entry and runs an 'inventory' scan on these. This scan records
+   st_size, st_dev, st_ino, st_nlink and its path in a database.
+   Note that this *is* expensive, but much less expensive than doing a recursive delete.
+ - The Database is ideally in memory, but may be backed on disk on a lazy/volatile/non-logging
+   way. Care must be taken that Database access generates the least possible access to the
+   Disks. On unclean shutdown this Database will be discarded and rebuild.
+ - Once the inventory is finished we can run queries. Finding files where all its hardlinks
+   are exist only in the 'rmrfd' directories, sorted by size, biggiest first. Deleting these
+   first will free the most space with the least operations.
+ - As new files or directories are moved to the 'rmrfd' directory they are added to the
+   inventory as above.
+ - Eventually all files falling into the above category are deleted (this should also freed
+   the most space). Then only files which have hardlinks out of the 'rmrfd' scope remain. We
+   can just start a recursive delete on these remains. This will be slow and not free much
+   space, as the bulk space was already freed before but eventually complete.
+
+
