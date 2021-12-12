@@ -1,0 +1,96 @@
+
+* Tests
+
+$ find backups/ | wc -l ; du -sh backups/
+204891623
+5,3T	backups/
+
+** DirPath impl
+
+loaded entries: 186224785
+3866641 root      20   0   25,8g  25,8g   1956 R 100,0  41,1  50:04.18 experiment
+	Command being timed: "/home/ct/src/rmrfd/experiment/target/release/experiment"
+	User time (seconds): 929.10
+	System time (seconds): 2289.99
+	Percent of CPU this job got: 57%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:33:33
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 27037492
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 1
+	Minor (reclaiming a frame) page faults: 6775241
+	Voluntary context switches: 14548209
+	Involuntary context switches: 422856
+	Swaps: 0
+	File system inputs: 146554984
+	File system outputs: 15734824
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+
+** blocks > 32
+
+loaded entries: 53424781
+^CCommand terminated by signal 2
+	Command being timed: "/home/ct/src/rmrfd/experiment/target/release/experiment"
+	User time (seconds): 234.18
+	System time (seconds): 1178.93
+	Percent of CPU this job got: 33%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:10:24
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 8152692
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 5883
+	Minor (reclaiming a frame) page faults: 2083993
+	Voluntary context switches: 19654379
+	Involuntary context switches: 160483
+	Swaps: 0
+	File system inputs: 179464704
+	File system outputs: 2132816
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+
+
+** CACHED_NAMES impl
+
+loaded entries: 53424782
+	Command being timed: "/home/ct/src/rmrfd/experiment/target/release/experiment"
+	User time (seconds): 481.00
+	System time (seconds): 1240.09
+	Percent of CPU this job got: 38%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:14:10
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 4390632
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 565
+	Minor (reclaiming a frame) page faults: 1098740
+	Voluntary context switches: 19627107
+	Involuntary context switches: 175374
+	Swaps: 0
+	File system inputs: 176303336
+	File system outputs: 12845992
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+
+
+* Ideas
+
+ * Highwater config for as much things stored in the inventory, do a delete run then before continuing
+ * min blocks filter
