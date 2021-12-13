@@ -31,7 +31,7 @@ impl Inventory {
 
     fn load_dir_recursive_intern(
         &mut self,
-        dir: Arc<DirectoryPath>,
+        dir: Arc<ObjectPath>,
         path: &mut PathBuf,
     ) -> io::Result<()> {
         self.thousand -= 1;
@@ -48,7 +48,7 @@ impl Inventory {
                         let dirname = self.cache_name(entry.file_name_ref());
                         path.push(&dirname);
                         self.load_dir_recursive_intern(
-                            DirectoryPath::subdir(dir.clone(), dirname),
+                            ObjectPath::subobject(dir.clone(), dirname),
                             path,
                         )?;
                         path.pop();
@@ -58,7 +58,10 @@ impl Inventory {
                             self.entries
                                 .entry(metadata.dev())
                                 .or_default()
-                                .insert(InventoryEntry::new(dir.clone(), name, &metadata));
+                                .insert(InventoryEntry::new(
+                                    ObjectPath::subobject(dir.clone(), name),
+                                    &metadata
+                                ));
                         }
                     }
                 }
@@ -70,7 +73,7 @@ impl Inventory {
 
     pub fn load_dir_recursive<P: AsRef<Path>>(&mut self, dir: P) -> io::Result<()> {
         self.load_dir_recursive_intern(
-            Arc::new(DirectoryPath::new(&dir)),
+            Arc::new(ObjectPath::new(&dir)),
             &mut PathBuf::from(&dir.as_ref()),
         )
     }
@@ -91,19 +94,17 @@ struct InventoryEntry {
     ino:    u64,
     nlink:  u64,
     // parent_dir: RmrfDir
-    path:   Arc<DirectoryPath>,
-    name:   CachedName,
+    path:   Arc<ObjectPath>,
 }
 
 impl InventoryEntry {
-    fn new(path: Arc<DirectoryPath>, name: CachedName, metadata: &Metadata) -> InventoryEntry {
+    fn new(path: Arc<ObjectPath>, metadata: &Metadata) -> InventoryEntry {
         InventoryEntry {
             blocks: metadata.blocks(),
             ino: metadata.ino(),
             nlink: metadata.nlink(),
             // parent_dir: RmrfDir
             path,
-            name,
         }
     }
 }
@@ -176,23 +177,23 @@ impl AsRef<Path> for CachedName {
 }
 
 #[derive(PartialOrd, PartialEq, Ord)]
-struct DirectoryPath {
-    parent: Option<Arc<DirectoryPath>>,
+struct ObjectPath {
+    parent: Option<Arc<ObjectPath>>,
     name:   CachedName,
 }
 
-impl Eq for DirectoryPath {}
+impl Eq for ObjectPath {}
 
-impl DirectoryPath {
-    pub fn new<P: AsRef<Path>>(path: P) -> DirectoryPath {
-        DirectoryPath {
+impl ObjectPath {
+    pub fn new<P: AsRef<Path>>(path: P) -> ObjectPath {
+        ObjectPath {
             parent: None,
             name:   CachedName::new(path.as_ref().as_os_str()),
         }
     }
 
-    pub fn subdir(parent: Arc<DirectoryPath>, name: CachedName) -> Arc<DirectoryPath> {
-        Arc::new(DirectoryPath {
+    pub fn subobject(parent: Arc<ObjectPath>, name: CachedName) -> Arc<ObjectPath> {
+        Arc::new(ObjectPath {
             parent: Some(parent.clone()),
             name:   name.clone(),
         })
@@ -214,14 +215,14 @@ impl DirectoryPath {
 
 #[test]
 fn directory_path_smoke() {
-    assert_eq!(DirectoryPath::new(".").to_pathbuf(), PathBuf::from("."));
+    assert_eq!(ObjectPath::new(".").to_pathbuf(), PathBuf::from("."));
 }
 
 #[test]
-fn directory_path_subdir() {
-    let p = Arc::new(DirectoryPath::new("."));
+fn directory_path_subobject() {
+    let p = Arc::new(ObjectPath::new("."));
     assert_eq!(
-        DirectoryPath::subdir(p, CachedName::new(OsStr::new("foo"))).to_pathbuf(),
+        ObjectPath::subobject(p, CachedName::new(OsStr::new("foo"))).to_pathbuf(),
         PathBuf::from("./foo")
     );
 }
