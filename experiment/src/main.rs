@@ -92,7 +92,6 @@ impl Inventory {
 struct InventoryEntry {
     blocks: u64,
     ino:    u64,
-    nlink:  u64,
     // parent_dir: RmrfDir
     path:   Arc<ObjectPath>,
 }
@@ -102,7 +101,6 @@ impl InventoryEntry {
         InventoryEntry {
             blocks: metadata.blocks(),
             ino: metadata.ino(),
-            nlink: metadata.nlink(),
             // parent_dir: RmrfDir
             path,
         }
