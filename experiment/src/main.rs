@@ -1,4 +1,3 @@
-#![feature(once_cell)]
 #![feature(hash_set_entry)]
 #![feature(dir_entry_ext2)]
 use std::fs::{read_dir, Metadata};
@@ -13,7 +12,7 @@ use std::ops::Deref;
 use std::os::unix::fs::DirEntryExt2;
 
 struct Inventory {
-    entries:      HashMap<u64, BTreeSet<InventoryEntry>>,
+    entries:      HashMap<u64, BTreeMap<InventoryKey, ObjectList>>,
     counter:      u64,
     thousand:     u64,
     cached_names: HashSet<CachedName>,
@@ -58,10 +57,9 @@ impl Inventory {
                             self.entries
                                 .entry(metadata.dev())
                                 .or_default()
-                                .insert(InventoryEntry::new(
-                                    ObjectPath::subobject(dir.clone(), name),
-                                    &metadata
-                                ));
+                                .entry(InventoryKey::new(&metadata))
+                                .or_default()
+                                .add_object(ObjectPath::subobject(dir.clone(), name));
                         }
                     }
                 }
@@ -89,55 +87,83 @@ impl Inventory {
     }
 }
 
-struct InventoryEntry {
+struct InventoryKey {
     blocks: u64,
     ino:    u64,
-    // parent_dir: RmrfDir
-    path:   Arc<ObjectPath>,
 }
 
-impl InventoryEntry {
-    fn new(path: Arc<ObjectPath>, metadata: &Metadata) -> InventoryEntry {
-        InventoryEntry {
+impl InventoryKey {
+    fn new(metadata: &Metadata) -> InventoryKey {
+        InventoryKey {
             blocks: metadata.blocks(),
-            ino: metadata.ino(),
-            // parent_dir: RmrfDir
-            path,
+            ino:    metadata.ino(),
         }
     }
 }
 
 use std::cmp::Ordering;
-
-impl Ord for InventoryEntry {
+impl Ord for InventoryKey {
     fn cmp(&self, other: &Self) -> Ordering {
         let r = self.blocks.cmp(&other.blocks);
         if r == Ordering::Equal {
-            let r = self.ino.cmp(&other.ino);
-            if r == Ordering::Equal {
-                self.path.cmp(&other.path)
-            } else {
-                r
-            }
+            self.ino.cmp(&other.ino)
         } else {
             r
         }
     }
 }
 
-impl PartialOrd for InventoryEntry {
+impl PartialOrd for InventoryKey {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl PartialEq for InventoryEntry {
+impl PartialEq for InventoryKey {
     fn eq(&self, other: &Self) -> bool {
         self.blocks == other.blocks && self.ino == other.ino
     }
 }
 
-impl Eq for InventoryEntry {}
+impl Eq for InventoryKey {}
+
+// TODO: can we strip the Arc from ObjectList::One/Many?
+// TODO: store rmrf_dir: RmrfDir (struct Object ...)
+enum ObjectList {
+    Empty,
+    One(Arc<ObjectPath>),
+    Many(Vec<Arc<ObjectPath>>),
+}
+
+impl ObjectList {
+    pub fn add_object(&mut self, path: Arc<ObjectPath>) {
+        match self {
+            ObjectList::Empty => *self = ObjectList::One(path),
+            ObjectList::One(first) => {
+                let mut many = vec![first.clone()];
+                many.push(path);
+                *self = ObjectList::Many(many);
+            }
+            ObjectList::Many(vec) => {
+                vec.push(path);
+            }
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            ObjectList::Empty => 0,
+            ObjectList::One(_) => 1,
+            ObjectList::Many(vec) => vec.len(),
+        }
+    }
+}
+
+impl Default for ObjectList {
+    fn default() -> ObjectList {
+        ObjectList::Empty
+    }
+}
 
 #[derive(Debug, Hash, PartialOrd, PartialEq, Eq, Ord)]
 struct CachedName(Arc<OsString>);
@@ -232,11 +258,14 @@ fn main() {
     inventory.load_dir_recursive(".").unwrap();
 
     let mut sum = 0;
-    inventory.entries
-             .iter()
-             .for_each(|table: (&u64, &BTreeSet<InventoryEntry>)| {
-                 sum += table.1.len();
-             });
+    inventory
+        .entries
+        .iter()
+        .for_each(|table: (&u64, &BTreeMap<InventoryKey, ObjectList>)| {
+            for value in table.1.values() {
+                sum += value.len();
+            }
+        });
 
     eprintln!("loaded entries: {}", sum);
 
