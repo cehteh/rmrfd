@@ -3,7 +3,7 @@
 #![feature(dir_entry_ext2)]
 use std::fs::{read_dir, Metadata};
 use std::os::unix::fs::MetadataExt;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::ffi::{OsStr, OsString};
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use std::ops::Deref;
 use std::os::unix::fs::DirEntryExt2;
 
 struct Inventory {
-    entries:      BTreeSet<InventoryEntry>,
+    entries:      HashMap<u64, BTreeSet<InventoryEntry>>,
     counter:      u64,
     thousand:     u64,
     cached_names: HashSet<CachedName>,
@@ -22,7 +22,7 @@ struct Inventory {
 impl Inventory {
     pub fn new() -> Inventory {
         Inventory {
-            entries:      BTreeSet::new(),
+            entries:      HashMap::new(),
             counter:      1,
             thousand:     1000,
             cached_names: HashSet::new(),
@@ -53,9 +53,11 @@ impl Inventory {
                         )?;
                         path.pop();
                     } else {
-                        if metadata.blocks() > 32 {
+                        if metadata.blocks() > 0 {
                             let name = self.cache_name(entry.file_name_ref());
                             self.entries
+                                .entry(metadata.dev())
+                                .or_default()
                                 .insert(InventoryEntry::new(dir.clone(), name, &metadata));
                         }
                     }
@@ -87,7 +89,6 @@ impl Inventory {
 struct InventoryEntry {
     blocks: u64,
     ino:    u64,
-    dev:    u64,
     nlink:  u64,
     // parent_dir: RmrfDir
     path:   Arc<DirectoryPath>,
@@ -99,7 +100,6 @@ impl InventoryEntry {
         InventoryEntry {
             blocks: metadata.blocks(),
             ino: metadata.ino(),
-            dev: metadata.dev(),
             nlink: metadata.nlink(),
             // parent_dir: RmrfDir
             path,
@@ -116,12 +116,7 @@ impl Ord for InventoryEntry {
         if r == Ordering::Equal {
             let r = self.ino.cmp(&other.ino);
             if r == Ordering::Equal {
-                let r = self.dev.cmp(&other.dev);
-                if r == Ordering::Equal {
-                    self.path.cmp(&other.path)
-                } else {
-                    r
-                }
+                self.path.cmp(&other.path)
             } else {
                 r
             }
@@ -139,7 +134,7 @@ impl PartialOrd for InventoryEntry {
 
 impl PartialEq for InventoryEntry {
     fn eq(&self, other: &Self) -> bool {
-        self.blocks == other.blocks && self.ino == other.ino && self.dev == other.dev
+        self.blocks == other.blocks && self.ino == other.ino
     }
 }
 
@@ -237,14 +232,14 @@ fn main() {
     let mut inventory = Inventory::new();
     inventory.load_dir_recursive(".").unwrap();
 
-    eprintln!("loaded entries: {}", inventory.entries.len());
+    let mut sum = 0;
+    inventory.entries
+             .iter()
+             .for_each(|table: (&u64, &BTreeSet<InventoryEntry>)| {
+                 sum += table.1.len();
+             });
 
-    for item in inventory.entries {
-        println!(
-            "{}: {}: {:?}",
-            item.blocks,
-            item.nlink,
-            item.path.to_pathbuf().join(item.name)
-        );
-    }
+    eprintln!("loaded entries: {}", sum);
+
+    eprintln!("strings in cache: {}", inventory.cached_names.len());
 }
