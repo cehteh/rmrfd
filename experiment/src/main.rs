@@ -52,7 +52,7 @@ impl Inventory {
                         )?;
                         path.pop();
                     } else {
-                        if metadata.blocks() > 0 {
+                        if metadata.blocks() > 64 {
                             let name = self.cache_name(entry.file_name_ref());
                             self.entries
                                 .entry(metadata.dev())

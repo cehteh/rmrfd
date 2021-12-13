@@ -143,6 +143,63 @@ string in cache: 701004
 	Page size (bytes): 4096
 	Exit status: 0
 
+* using ObjectList
+
+loaded entries: 184152220
+strings in cache: 701004
+	Command being timed: "/home/ct/src/rmrfd/experiment/target/release/experiment"
+	User time (seconds): 234.74
+	System time (seconds): 1227.90
+	Percent of CPU this job got: 36%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:07:10
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 11808644
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 167095
+	Minor (reclaiming a frame) page faults: 2974516
+	Voluntary context switches: 19864625
+	Involuntary context switches: 102264
+	Swaps: 0
+	File system inputs: 182126976
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+
+* using ObjectList & blocks > 64
+
+loaded entries: 37692585
+strings in cache: 144908
+	Command being timed: "/home/ct/src/rmrfd/experiment/target/release/experiment"
+	User time (seconds): 109.50
+	System time (seconds): 1221.46
+	Percent of CPU this job got: 34%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:04:51
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 2531724
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 68139
+	Minor (reclaiming a frame) page faults: 666697
+	Voluntary context switches: 19845560
+	Involuntary context switches: 87018
+	Swaps: 0
+	File system inputs: 178971232
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+
+
 * Ideas
 
  * Highwater config for as much things stored in the inventory, do a delete run then before continuing
