@@ -1,0 +1,16 @@
+[package]
+name = "librmrfd"
+version = "0.1.0"
+authors = ["Christian Thäter <ct@pipapo.org>"]
+edition = "2021"
+description = "System service to delete huge directory trees in background"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/cehteh/rmrfd.git"
+keywords = ["filesystem", "daemon", "unix"]
+
+[dependencies]
+
+
+
+[badges]
+maintenance = { status = "actively-developed" }
