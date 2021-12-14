@@ -11,6 +11,8 @@ use std::borrow::Borrow;
 use std::ops::Deref;
 use std::os::unix::fs::DirEntryExt2;
 
+type ObjectList = Vec<Arc<ObjectPath>>;
+
 struct Inventory {
     entries:      HashMap<u64, BTreeMap<InventoryKey, ObjectList>>,
     counter:      u64,
@@ -59,7 +61,7 @@ impl Inventory {
                                 .or_default()
                                 .entry(InventoryKey::new(&metadata))
                                 .or_default()
-                                .add_object(ObjectPath::subobject(dir.clone(), name));
+                                .push(ObjectPath::subobject(dir.clone(), name));
                         }
                     }
                 }
@@ -126,44 +128,6 @@ impl PartialEq for InventoryKey {
 }
 
 impl Eq for InventoryKey {}
-
-// TODO: can we strip the Arc from ObjectList::One/Many?
-// TODO: store rmrf_dir: RmrfDir (struct Object ...)
-enum ObjectList {
-    Empty,
-    One(Arc<ObjectPath>),
-    Many(Vec<Arc<ObjectPath>>),
-}
-
-impl ObjectList {
-    pub fn add_object(&mut self, path: Arc<ObjectPath>) {
-        match self {
-            ObjectList::Empty => *self = ObjectList::One(path),
-            ObjectList::One(first) => {
-                let mut many = vec![first.clone()];
-                many.push(path);
-                *self = ObjectList::Many(many);
-            }
-            ObjectList::Many(vec) => {
-                vec.push(path);
-            }
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        match self {
-            ObjectList::Empty => 0,
-            ObjectList::One(_) => 1,
-            ObjectList::Many(vec) => vec.len(),
-        }
-    }
-}
-
-impl Default for ObjectList {
-    fn default() -> ObjectList {
-        ObjectList::Empty
-    }
-}
 
 #[derive(Debug, Hash, PartialOrd, PartialEq, Eq, Ord)]
 struct CachedName(Arc<OsString>);
