@@ -10,9 +10,12 @@
 #+LATEX_HEADER: \parindent0
 #+BEGIN_ABSTRACT
 Most (space-time) efficient way to delete files in the background on Unix like operating systems.
+
+--or--
+
+When ~-rf~ means ~--really --fast~...
 #+END_ABSTRACT
 #+TOC: headlines 3
-
 
 * The Problem
 
@@ -136,3 +139,13 @@ error number ~ERR nnn\0~.
 * Commandline Utility
 
 A simple commandline utility 'rmrf' that calls above API can be implemented.
+
+* Notes
+
+** Crossing devices
+
+Deletion may still cross devices when a mountpoint exists below the deleted directory. This
+needs to be addressed:
+ * since the mountpoint is within the domain of rmrfd it needs to unmount it (otherwise it
+   wont be able to delete the tree)
+ * needs a option to cross devices, but defaults to not do so (only unmounting happens)
