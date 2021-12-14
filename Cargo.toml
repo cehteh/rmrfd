@@ -1,14 +1,10 @@
-[package]
-name = "rmrfd"
-version = "0.0.0"
-authors = ["Christian Thäter <ct@pipapo.org>"]
-edition = "2021"
-description = "System service to delete huge directory trees in background"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/cehteh/rmrfd.git"
-keywords = ["filesystem", "daemon", "unix"]
-
-[badges]
-maintenance = { status = "actively-developed" }
-
-[dependencies]
+[workspace]
+members = [
+        "librmrfd",
+#        "rmrfd",
+#        "rmrf",
+#        "librmrf",
+]
+exclude = [
+        "experiment",
+]
