@@ -7,9 +7,13 @@ use std::sync::Arc;
 use std::os::unix::fs::DirEntryExt2;
 use std::cmp::Ordering;
 
-use crate::{InternedNames, ObjectList, ObjectPath};
+use crate::{InternedNames, ObjectPath};
 
-type DeviceId = u64;
+/// Slightly better name for device identifiers returned from metadata.
+pub type DeviceId = u64;
+
+/// All names linked to a single file on disk.
+pub type ObjectList = Vec<std::sync::Arc<ObjectPath>>;
 
 /// Space efficient store for file metadata of files larger than a certain min_blocksize.
 /// This is used to find whcih files to delete first for most space efficient deletion.  There

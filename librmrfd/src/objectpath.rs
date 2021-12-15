@@ -7,7 +7,7 @@ use crate::InternedName;
 /// strings of the actual object names and a reference to its parent. Note tat since parents
 /// are usually shared between all ObjectPath instances, the API uses Arc<ObjectPath> instead
 /// plain objects.
-#[derive(PartialOrd, PartialEq, Ord)]
+#[derive(Hash, PartialOrd, PartialEq, Ord)]
 pub struct ObjectPath {
     parent: Option<Arc<ObjectPath>>,
     name:   InternedName,
