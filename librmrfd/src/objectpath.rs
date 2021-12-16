@@ -32,9 +32,9 @@ impl ObjectPath {
         })
     }
 
-    fn pathbuf_push_parent(&self, target: &mut PathBuf, len: usize) {
+    fn pathbuf_push_parents(&self, target: &mut PathBuf, len: usize) {
         if let Some(parent) = &self.parent {
-            parent.pathbuf_push_parent(target, len + self.name.len() + 1 /* delimiter char */)
+            parent.pathbuf_push_parents(target, len + self.name.len() + 1 /* delimiter char */)
         } else {
             target.reserve(len + self.name.len());
         };
@@ -42,20 +42,23 @@ impl ObjectPath {
     }
 
     /// Construct the ObjectPath as String in the given PathBuf.
-    pub fn to_pathbuf<'a>(&self, target: &'a mut PathBuf) -> &'a PathBuf {
+    pub fn write_pathbuf<'a>(&self, target: &'a mut PathBuf) -> &'a PathBuf {
         target.clear();
-        self.pathbuf_push_parent(target, 1 /* for root delimter */);
+        self.pathbuf_push_parents(target, 1 /* for root delimter */);
+        target
+    }
+
+    /// Create a new PathBuf from the given ObjectPath.
+    pub fn to_pathbuf(&self) -> PathBuf {
+        let mut target = PathBuf::new();
+        self.pathbuf_push_parents(&mut target, 1 /* for root delimter */);
         target
     }
 }
 
 #[test]
 fn objectpath_path_smoke() {
-    let mut pathbuf = PathBuf::new();
-    assert_eq!(
-        ObjectPath::new(".").to_pathbuf(&mut pathbuf),
-        &PathBuf::from(".")
-    );
+    assert_eq!(ObjectPath::new(".").to_pathbuf(), PathBuf::from("."));
 }
 
 #[test]
@@ -65,7 +68,7 @@ fn objectpath_path_subobject() {
     let mut pathbuf = PathBuf::new();
     assert_eq!(
         p.subobject(InternedName::new(OsStr::new("foo")))
-            .to_pathbuf(&mut pathbuf),
+            .write_pathbuf(&mut pathbuf),
         &PathBuf::from("./foo")
     );
 }
