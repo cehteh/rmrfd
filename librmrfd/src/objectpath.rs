@@ -25,9 +25,9 @@ impl ObjectPath {
     }
 
     /// Creates a new ObjectPath as subobject to some existing ObjectPath object.
-    pub fn subobject(parent: Arc<ObjectPath>, name: InternedName) -> Arc<ObjectPath> {
+    pub fn subobject(self: Arc<Self>, name: InternedName) -> Arc<ObjectPath> {
         Arc::new(ObjectPath {
-            parent: Some(parent),
+            parent: Some(self.clone()),
             name,
         })
     }
@@ -44,7 +44,7 @@ impl ObjectPath {
     /// Construct the ObjectPath as String in the given PathBuf.
     pub fn to_pathbuf<'a>(&self, target: &'a mut PathBuf) -> &'a PathBuf {
         target.clear();
-        self.pathbuf_push_parent(target, 1 /* maybe for root delimter */);
+        self.pathbuf_push_parent(target, 1 /* for root delimter */);
         target
     }
 }
@@ -64,7 +64,8 @@ fn objectpath_path_subobject() {
     let p = ObjectPath::new(".");
     let mut pathbuf = PathBuf::new();
     assert_eq!(
-        ObjectPath::subobject(p, InternedName::new(OsStr::new("foo"))).to_pathbuf(&mut pathbuf),
+        p.subobject(InternedName::new(OsStr::new("foo")))
+            .to_pathbuf(&mut pathbuf),
         &PathBuf::from("./foo")
     );
 }
