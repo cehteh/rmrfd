@@ -32,32 +32,39 @@ impl ObjectPath {
         })
     }
 
-    fn pathbuf_push_parent(&self, pathbuf: &mut PathBuf) {
+    fn pathbuf_push_parent(&self, target: &mut PathBuf, len: usize) {
         if let Some(parent) = &self.parent {
-            parent.pathbuf_push_parent(pathbuf)
+            parent.pathbuf_push_parent(target, len + self.name.len() + 1 /* delimiter char */)
+        } else {
+            target.reserve(len + self.name.len());
         };
-        pathbuf.push(&*self.name);
+        target.push(&*self.name);
     }
 
-    /// Assembles a PathBuf from an ObjectPath.
-    pub fn to_pathbuf(&self) -> PathBuf {
-        let mut pathbuf = PathBuf::new();
-        self.pathbuf_push_parent(&mut pathbuf);
-        pathbuf
+    /// Construct the ObjectPath as String in the given PathBuf.
+    pub fn to_pathbuf<'a>(&self, target: &'a mut PathBuf) -> &'a PathBuf {
+        target.clear();
+        self.pathbuf_push_parent(target, 1 /* maybe for root delimter */);
+        target
     }
 }
 
 #[test]
 fn objectpath_path_smoke() {
-    assert_eq!(ObjectPath::new(".").to_pathbuf(), PathBuf::from("."));
+    let mut pathbuf = PathBuf::new();
+    assert_eq!(
+        ObjectPath::new(".").to_pathbuf(&mut pathbuf),
+        &PathBuf::from(".")
+    );
 }
 
 #[test]
 fn objectpath_path_subobject() {
     use std::ffi::OsStr;
     let p = ObjectPath::new(".");
+    let mut pathbuf = PathBuf::new();
     assert_eq!(
-        ObjectPath::subobject(p, InternedName::new(OsStr::new("foo"))).to_pathbuf(),
-        PathBuf::from("./foo")
+        ObjectPath::subobject(p, InternedName::new(OsStr::new("foo"))).to_pathbuf(&mut pathbuf),
+        &PathBuf::from("./foo")
     );
 }
