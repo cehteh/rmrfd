@@ -9,7 +9,7 @@ use crate::{DeviceId, Inventory, ObjectPath};
 
 /// The daemon state
 pub struct Rmrfd {
-    inventory: Inventory,
+    inventory: Arc<Inventory>,
     rmrf_dirs: HashMap<Arc<ObjectPath>, DeviceId>,
 }
 
@@ -26,6 +26,7 @@ pub struct RmrfdBuilder {
     min_blockcount:    u64,
     rmrf_dirs:         HashMap<Arc<ObjectPath>, DeviceId>,
     inventory_threads: usize,
+    inventory_backlog: usize,
 }
 
 impl Default for RmrfdBuilder {
@@ -34,12 +35,21 @@ impl Default for RmrfdBuilder {
             min_blockcount:    0,
             rmrf_dirs:         HashMap::new(),
             inventory_threads: 1,
+            inventory_backlog: 128,
         }
     }
 }
 
 impl RmrfdBuilder {
-    /// How many threads are used to gather the inventory
+    /// How many InventoryEntries can be pending. The consumer that adds InventoryEntries to
+    /// the Inventory should in most cases be much faster than the directory worker
+    /// threads. Thus this number can be small.
+    pub fn with_inventory_backlog(mut self, n: usize) -> Self {
+        self.inventory_threads = n;
+        self
+    }
+
+    /// How many worker threads are used to gather the inventory
     pub fn with_inventory_threads(mut self, n: usize) -> Self {
         self.inventory_threads = n;
         self
@@ -63,9 +73,9 @@ impl RmrfdBuilder {
     }
 
     /// Creates the Rmrfd.
-    pub fn build(self) -> Rmrfd {
+    pub fn run(self) -> Rmrfd {
         Rmrfd {
-            inventory: Inventory::new(self.min_blockcount),
+            inventory: Inventory::new(self.min_blockcount, self.inventory_threads),
             rmrf_dirs: self.rmrf_dirs,
         }
     }
@@ -83,7 +93,7 @@ mod tests {
             .add_dir(OsStr::new("../"))
             .unwrap()
             .with_min_blockcount(64)
-            .build();
+            .run();
         //.unwrap();
     }
 }
