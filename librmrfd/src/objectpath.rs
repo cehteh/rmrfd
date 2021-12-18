@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::ffi::OsStr;
 use std::sync::Arc;
 
 use crate::InternedName;
@@ -27,7 +28,7 @@ impl ObjectPath {
     /// Creates a new ObjectPath as subobject to some existing ObjectPath object.
     pub fn subobject(self: Arc<Self>, name: InternedName) -> Arc<ObjectPath> {
         Arc::new(ObjectPath {
-            parent: Some(self.clone()),
+            parent: Some(self),
             name,
         })
     }
@@ -53,6 +54,17 @@ impl ObjectPath {
         let mut target = PathBuf::new();
         self.pathbuf_push_parents(&mut target, 1 /* for root delimter */);
         target
+    }
+
+    pub fn name(&self) -> &OsStr {
+        &self.name
+    }
+}
+
+use std::fmt;
+impl fmt::Debug for ObjectPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.to_pathbuf())
     }
 }
 
