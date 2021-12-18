@@ -11,8 +11,8 @@ use std::sync::{
     atomic::{self, AtomicUsize},
     Mutex, RwLock,
 };
-use std::error::Error;
 
+use easy_error::{bail, ensure, Error, ResultExt, Terminator};
 use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
 use openat_ct as openat;
 use openat::{Dir, SimpleType};
@@ -79,22 +79,25 @@ impl Inventory {
         entry: io::Result<openat::Entry>,
         dir: &Arc<Dir>,
         path: &Arc<ObjectPath>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Error> {
         // FIXME: when iterating at a certain depth (before number of file handles running
         // out) then dont keep sub dir handles open in an Arc, needs a different strategy then.
-        let entry = entry?;
+        let entry = entry.context("Invalid directory entry")?;
         match entry.simple_type() {
             Some(SimpleType::Dir) => {
                 let subdir =
                     ObjectPath::subobject(path.clone(), self.names.interning(entry.file_name()));
 
-                let message = DirectoryGatherMessage::new_dir(subdir)?;
+                let message = DirectoryGatherMessage::new_dir(subdir.clone());
 
                 self.job_count.fetch_add(1, atomic::Ordering::Release);
                 Ok(self
                     .input
                     .0
                     .send(message.with_parent(dir.clone()))
+                    .with_context(|| {
+                        format!("Failed to send message for: {:?}", subdir.to_pathbuf())
+                    })
                     .map_err(|err| {
                         self.job_count.fetch_sub(1, atomic::Ordering::Release);
                         err
@@ -103,7 +106,12 @@ impl Inventory {
             // TODO: split here on simple-type
             _ => {
                 // handle anything else
-                let metadata = dir.metadata(entry.file_name())?;
+                let metadata = dir.metadata(entry.file_name()).with_context(|| {
+                    format!(
+                        "Failed get metadata on: {:?}",
+                        path.to_pathbuf().join(entry.file_name())
+                    )
+                })?;
 
                 trace!("file: {:?}", path.to_pathbuf().join(entry.file_name()));
 
@@ -113,7 +121,7 @@ impl Inventory {
     }
 
     /// sends error to output channel and returns it
-    fn send_error<T>(&self, err: Box<dyn Error>) -> Result<T, Box<dyn Error>> {
+    fn send_error<T>(&self, err: Error) -> Result<T, Error> {
         error!("{:?}", err);
         // TODO: send error to output
         Err(err)
@@ -133,9 +141,8 @@ impl Inventory {
                     use DirectoryGatherMessage::*;
 
                     match message
-                        .map_err::<Result<DirectoryGatherMessage, Box<dyn Error>>, _>(|e| {
-                            self.send_error(e.into())
-                        })
+                        .context("Message receive error")
+                        .map_err::<Result<DirectoryGatherMessage, Error>, _>(|e| self.send_error(e))
                         .ok()
                     {
                         Some(TraverseDirectory { path, parent_dir }) => {
@@ -151,11 +158,16 @@ impl Inventory {
                                         trace!("traverse dir: {:?}", path.to_pathbuf());
                                         Ok(dir_iter.for_each(|entry| {
                                             self.process_entry(entry, &dir, &path)
+                                                .context("Could not process entry")
                                                 .map_err(|e| self.send_error::<()>(e));
                                         }))
                                     })
+                                    .with_context(|| {
+                                        format!("Could not iterate: {:?}", path.to_pathbuf())
+                                    })
                                     .map_err(|e| self.send_error::<()>(e.into())))
                             })
+                            .with_context(|| format!("Could not open: {:?}", path.to_pathbuf()))
                             .map_err(|e| self.send_error::<()>(e.into()));
 
                             if self.job_count.fetch_sub(1, atomic::Ordering::Acquire) == 1 {
@@ -169,9 +181,13 @@ impl Inventory {
     }
 
     /// Adds a directory to the processing queue of the inventory.
-    pub fn load_dir_recursive(&self, path: Arc<ObjectPath>) -> Result<(), Box<dyn Error>> {
+    pub fn load_dir_recursive(&self, path: Arc<ObjectPath>) -> Result<(), Error> {
         self.job_count.fetch_add(1, atomic::Ordering::Release);
-        Ok(self.input.0.send(DirectoryGatherMessage::new_dir(path)?)?)
+        Ok(self
+            .input
+            .0
+            .send(DirectoryGatherMessage::new_dir(path))
+            .context("Failed to send message")?)
     }
 }
 
@@ -228,11 +244,11 @@ enum DirectoryGatherMessage {
 
 impl DirectoryGatherMessage {
     /// Create a new 'TraverseDirectory' message.
-    pub fn new_dir(path: Arc<ObjectPath>) -> io::Result<DirectoryGatherMessage> {
-        Ok(DirectoryGatherMessage::TraverseDirectory {
+    pub fn new_dir(path: Arc<ObjectPath>) -> Self {
+        DirectoryGatherMessage::TraverseDirectory {
             path,
             parent_dir: None,
-        })
+        }
     }
 
     /// Attach a parent handle to a 'TraverseDirectory' message. Must not be used with other messages!
@@ -252,7 +268,7 @@ impl DirectoryGatherMessage {
 #[derive(Debug)]
 enum InventoryEntriesMessage {
     InventoryEntry(InventoryKey, Arc<ObjectPath>),
-    Err(Box<dyn Error>),
+    Err(Error),
     Done,
 }
 
