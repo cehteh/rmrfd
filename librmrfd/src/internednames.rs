@@ -1,27 +1,30 @@
 use std::path::Path;
 use std::ffi::{OsStr, OsString};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::borrow::Borrow;
 use std::ops::Deref;
 use std::collections::HashSet;
 
 /// Storage for all interned names.
 pub struct InternedNames {
-    cached_names: HashSet<InternedName>,
+    cached_names: Mutex<HashSet<InternedName>>,
 }
 
 impl InternedNames {
     /// Create a new InternedNames storage
     pub fn new() -> InternedNames {
         InternedNames {
-            cached_names: HashSet::new(),
+            cached_names: Mutex::new(HashSet::new()),
         }
     }
 
     /// interns the given name from a reference by either creating a new instance or
     /// returning a reference to the existing instance.
-    pub fn interning(&mut self, name: &OsStr) -> InternedName {
+    pub fn interning(&self, name: &OsStr) -> InternedName {
         self.cached_names
+            .lock()
+            .unwrap()
             .get_or_insert_with(name, InternedName::new)
             .clone()
     }
@@ -42,7 +45,8 @@ impl Default for InternedNames {
 pub struct InternedName(Arc<OsString>);
 
 impl InternedName {
-    /// Create a new InterenedName from an OsStr reference.
+    /// Create a new InterenedName from an OsStr reference.  This InternedName is not yet part
+    /// of any InternedNames collection. Use InternedNames::interning() for that!
     pub fn new(s: &OsStr) -> InternedName {
         InternedName(Arc::new(OsString::from(s)))
     }
