@@ -17,3 +17,6 @@ pub use internednames::{InternedName, InternedNames};
 
 mod rmrfd;
 pub use rmrfd::Rmrfd;
+
+mod priority_queue;
+pub use priority_queue::PriorityQueue;
