@@ -274,39 +274,7 @@ enum InventoryEntriesMessage {
 
 #[cfg(test)]
 mod test {
-    use std::{thread, time};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::io::Write;
-
-    use env_logger;
-
     use crate::*;
-
-    fn init_logging() {
-        let counter: AtomicU64 = AtomicU64::new(0);
-        let seq_num = move || counter.fetch_add(1, Ordering::SeqCst);
-
-        let start = std::time::Instant::now();
-
-        env_logger::Builder::from_default_env()
-            .format(move |buf, record| {
-                let micros = start.elapsed().as_micros() as u64;
-                writeln!(
-                    buf,
-                    "{:0>12}: {:0>8}.{:0>6}: {:>5}: {}:{}: {}: {}",
-                    seq_num(),
-                    micros / 1000000,
-                    micros % 1000000,
-                    record.level().as_str(),
-                    record.file().unwrap_or(""),
-                    record.line().unwrap_or(0),
-                    std::thread::current().name().unwrap_or("UNKNOWN"),
-                    record.args()
-                )
-            })
-            .try_init()
-            .unwrap();
-    }
 
     // tests
     #[test]
@@ -324,6 +292,6 @@ mod test {
         inventory.load_dir_recursive(ObjectPath::new(".."));
 
         // FIXME: wait for threads
-        thread::sleep(std::time::Duration::from_millis(1000));
+        std::thread::sleep(std::time::Duration::from_millis(10000000));
     }
 }
