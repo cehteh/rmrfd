@@ -1,11 +1,11 @@
 //! A channel/message-queue based on a pairing heap with some special features:
 //!
 //!  * Tracks processing of messages with a ReceiveGuards and a counter. This is
-//!    useful when the recevier itself may send new items to the queue. As long as any
-//!    receiver is processing items, others 'recv()' are blocking. Once the queue becomes
-//!    empty and the final item is processed one waiter will get a notification with a
+//!    useful when the recevier itself may send new entrys to the queue. As long as any
+//!    receiver is processing entrys, others 'recv()' are blocking. Once the queue becomes
+//!    empty and the final entry is processed one waiter will get a notification with a
 //!    'Drained' message.
-// PLANNED: * Use without contention by pushing items to a local VecDeque and once the lock
+// PLANNED: * Use without contention by pushing entrys to a local VecDeque and once the lock
 //             becomes available merge the local data with the main queue with
 //             'try_merge_send()'.
 //!
@@ -17,7 +17,7 @@ use std::sync::atomic::{self, AtomicBool, AtomicUsize};
 #[allow(unused_imports)]
 pub use log::{debug, error, info, trace, warn};
 
-/// A queue which orders items by priority (smallest first)
+/// A queue which orders entrys by priority (smallest first)
 #[derive(Debug)]
 pub struct PriorityQueue<K, P>
 where
@@ -55,14 +55,14 @@ where
         }
     }
 
-    /// Pushes an item with some prio onto the queue.
-    pub fn send(&self, item: K, prio: P) {
+    /// Pushes an entry with some prio onto the queue.
+    pub fn send(&self, entry: K, prio: P) {
         self.in_progress.fetch_add(1, atomic::Ordering::SeqCst);
         self.is_drained.store(false, atomic::Ordering::SeqCst);
         self.heap
             .lock()
             .expect("Mutex not poisoned")
-            .push(QueueEntry::Item(item, prio));
+            .push(QueueEntry::Entry(entry, prio));
         self.notify.notify_one();
     }
 
@@ -87,7 +87,7 @@ where
         }
     }
 
-    /// Returns the smallest item from a queue. This item is wraped in a ReceiveGuard/QueueEntry
+    /// Returns the smallest entry from a queue. This entry is wraped in a ReceiveGuard/QueueEntry
     pub fn recv(&self) -> ReceiveGuard<K, P> {
         let entry = self
             .notify
@@ -101,7 +101,7 @@ where
         ReceiveGuard::new(entry, self)
     }
 
-    /// Try to get the smallest item from a queue. Will return Some<ReceiveGuard> when an entry was available.
+    /// Try to get the smallest entry from a queue. Will return Some<ReceiveGuard> when an entry is available.
     pub fn try_recv(&self) -> Option<ReceiveGuard<K, P>> {
         match self.heap.try_lock() {
             Ok(mut heap) => heap.pop().map(|entry| ReceiveGuard::new(entry, self)),
@@ -109,27 +109,13 @@ where
             _ => panic!("Poisoned Mutex"),
         }
     }
-
-    // pub fn try_send(&self, item: K, prio: P) -> Option<K, P> {
-    //     todo!()
-    // }
-
-    // pub fn merge(&self, PriorityQueue<K, P>)  {
-    //     todo!()
-    // }
-
-    // pub fn try_merge(&self, PriorityQueue<K, P>) -> Option<PriorityQueue<K, P>> {
-    //     todo!()
-    // }
-
-    // pub fn try_send_merge(&self, item: K, prio: P, PriorityQueue<K, P>)
 }
 
 /// Type for the received message
 #[derive(Debug, Clone, Copy)]
 pub enum QueueEntry<K: Send, P: Ord> {
     /// Entry with data K and priority P
-    Item(K, P),
+    Entry(K, P),
     /// Queue got empty and no other workers processing a ReceiveGuard
     Drained,
     /// Default value when taken from a ReceiveGuard
@@ -137,18 +123,18 @@ pub enum QueueEntry<K: Send, P: Ord> {
 }
 
 impl<K: Send, P: Ord> QueueEntry<K, P> {
-    /// Returns a reference to the value of the item.
+    /// Returns a reference to the value of the entry.
     pub fn entry(&self) -> Option<&K> {
         match &self {
-            QueueEntry::Item(k, _) => Some(k),
+            QueueEntry::Entry(k, _) => Some(k),
             _ => None,
         }
     }
 
-    /// Returns a reference to the priority of the item.
+    /// Returns a reference to the priority of the entry.
     pub fn priority(&self) -> Option<&P> {
         match &self {
-            QueueEntry::Item(_, prio) => Some(prio),
+            QueueEntry::Entry(_, prio) => Some(prio),
             _ => None,
         }
     }
@@ -163,7 +149,7 @@ impl<K: Send, P: Ord> Ord for QueueEntry<K, P> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         match (self, other) {
-            (QueueEntry::Item(_, a), QueueEntry::Item(_, b)) => b.cmp(a),
+            (QueueEntry::Entry(_, a), QueueEntry::Entry(_, b)) => b.cmp(a),
             (QueueEntry::Drained, QueueEntry::Drained) => Ordering::Equal,
             (QueueEntry::Drained, _) => Ordering::Greater,
             (_, QueueEntry::Drained) => Ordering::Less,
@@ -182,7 +168,7 @@ impl<K: Send, P: Ord> PartialEq for QueueEntry<K, P> {
     fn eq(&self, other: &Self) -> bool {
         use QueueEntry::*;
         match (self, other) {
-            (Item(_, a), Item(_, b)) => a == b,
+            (Entry(_, a), Entry(_, b)) => a == b,
             (Drained, Drained) | (Taken, Taken) => true,
             (_, _) => false,
         }
@@ -205,8 +191,8 @@ where
     K: Send,
     P: PartialOrd + Default + Ord,
 {
-    item: QueueEntry<K, P>,
-    pq:   &'a PriorityQueue<K, P>,
+    entry: QueueEntry<K, P>,
+    pq:    &'a PriorityQueue<K, P>,
 }
 
 impl<'a, K, P> ReceiveGuard<'a, K, P>
@@ -214,25 +200,18 @@ where
     K: Send,
     P: PartialOrd + Default + Ord,
 {
-    fn new(item: QueueEntry<K, P>, pq: &'a PriorityQueue<K, P>) -> Self {
-        ReceiveGuard { item, pq }
+    fn new(entry: QueueEntry<K, P>, pq: &'a PriorityQueue<K, P>) -> Self {
+        ReceiveGuard { entry, pq }
     }
 
-    /// Takes the 'QueueEntry' item out of a ReceiveGuard, drop the guard (and may by that send the 'Drained' message).
-    pub fn into_item(mut self) -> QueueEntry<K, P> {
-        std::mem::take(&mut self.item)
+    /// Takes the 'QueueEntry' entry out of a ReceiveGuard, drop the guard (and may by that send the 'Drained' message).
+    pub fn entry(&self) -> &QueueEntry<K, P> {
+        &self.entry
     }
-}
 
-impl<K, P> Deref for ReceiveGuard<'_, K, P>
-where
-    K: Send,
-    P: PartialOrd + Default + Ord,
-{
-    type Target = QueueEntry<K, P>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.item
+    /// Takes the 'QueueEntry' entry out of a ReceiveGuard, drop the guard (and may by that send the 'Drained' message).
+    pub fn into_entry(mut self) -> QueueEntry<K, P> {
+        std::mem::take(&mut self.entry)
     }
 }
 
@@ -263,10 +242,19 @@ mod tests {
         queue.send("test 1".to_string(), 1);
         queue.send("test 3".to_string(), 3);
         queue.send("test 2".to_string(), 2);
-        assert_eq!(*queue.recv(), QueueEntry::Item("test 1".to_string(), 1));
-        assert_eq!(*queue.recv(), QueueEntry::Item("test 2".to_string(), 2));
-        assert_eq!(*queue.recv(), QueueEntry::Item("test 3".to_string(), 3));
-        assert_eq!(*queue.recv(), QueueEntry::Drained);
+        assert_eq!(
+            queue.recv().entry(),
+            &QueueEntry::Entry("test 1".to_string(), 1)
+        );
+        assert_eq!(
+            queue.recv().entry(),
+            &QueueEntry::Entry("test 2".to_string(), 2)
+        );
+        assert_eq!(
+            queue.recv().entry(),
+            &QueueEntry::Entry("test 3".to_string(), 3)
+        );
+        assert_eq!(queue.recv().entry(), &QueueEntry::Drained);
         assert!(queue.try_recv().is_none());
     }
 
@@ -300,25 +288,25 @@ mod tests {
         let thread2_queue = queue.clone();
         let thread2 = thread::spawn(move || {
             assert_eq!(
-                *thread2_queue.recv(),
-                QueueEntry::Item("test 1".to_string(), 1)
+                thread2_queue.recv().entry(),
+                &QueueEntry::Entry("test 1".to_string(), 1)
             );
             assert_eq!(
-                *thread2_queue.recv(),
-                QueueEntry::Item("test 2".to_string(), 2)
+                thread2_queue.recv().entry(),
+                &QueueEntry::Entry("test 2".to_string(), 2)
             );
             assert_eq!(
-                *thread2_queue.recv(),
-                QueueEntry::Item("test 3".to_string(), 3)
+                thread2_queue.recv().entry(),
+                &QueueEntry::Entry("test 3".to_string(), 3)
             );
-            assert!(thread2_queue.recv().is_drained());
+            assert!(thread2_queue.recv().entry().is_drained());
             assert!(thread2_queue.try_recv().is_none());
             thread2_queue.send("test 4".to_string(), 4);
             assert_eq!(
-                *thread2_queue.recv(),
-                QueueEntry::Item("test 4".to_string(), 4)
+                thread2_queue.recv().entry(),
+                &QueueEntry::Entry("test 4".to_string(), 4)
             );
-            assert!(thread2_queue.recv().is_drained());
+            assert!(thread2_queue.recv().entry().is_drained());
             assert!(thread2_queue.try_recv().is_none());
         });
 
