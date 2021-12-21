@@ -311,12 +311,14 @@ mod test {
     // tests
     #[test]
     fn smoke() {
+        test::init_env_logging();
         let inventory = Inventory::new(64, 1);
     }
 
     #[test]
+    #[ignore]
     fn load_dir() {
-        init_logging();
+        test::init_env_logging();
 
         let inventory = Inventory::new(64, 8);
         inventory.load_dir_recursive(ObjectPath::new(".."));

@@ -5,13 +5,17 @@
 //!    receiver is processing items, others 'recv()' are blocking. Once the queue becomes
 //!    empty and the final item is processed one waiter will get a notification with a
 //!    'Drained' message.
-// PLANNED: * Use without contention by pushing items to a local queue and once the lock
-//             becomes available merge the local queue with the main queue with
+// PLANNED: * Use without contention by pushing items to a local VecDeque and once the lock
+//             becomes available merge the local data with the main queue with
 //             'try_merge_send()'.
 //!
-use std::sync::{Condvar, Mutex};
+use std::sync::{Condvar, Mutex, TryLockError};
 use std::ops::Deref;
 use std::collections::BinaryHeap;
+use std::sync::atomic::{self, AtomicBool, AtomicUsize};
+
+#[allow(unused_imports)]
+pub use log::{debug, error, info, trace, warn};
 
 /// A queue which orders items by priority (smallest first)
 #[derive(Debug)]
@@ -20,8 +24,10 @@ where
     K: Send,
     P: PartialOrd + Default + Ord,
 {
-    heap:   Mutex<(BinaryHeap<QueueEntry<K, P>>, usize)>,
-    notify: Condvar,
+    heap:        Mutex<BinaryHeap<QueueEntry<K, P>>>,
+    in_progress: AtomicUsize,
+    is_drained:  AtomicBool,
+    notify:      Condvar,
 }
 
 impl<K, P> Default for PriorityQueue<K, P>
@@ -42,49 +48,69 @@ where
     /// Create a new PriorityQueue
     pub fn new() -> PriorityQueue<K, P> {
         PriorityQueue {
-            heap:   Mutex::new((BinaryHeap::new(), 0)),
-            notify: Condvar::new(),
+            heap:        Mutex::new(BinaryHeap::new()),
+            in_progress: AtomicUsize::new(0),
+            is_drained:  AtomicBool::new(true),
+            notify:      Condvar::new(),
         }
     }
 
     /// Pushes an item with some prio onto the queue.
     pub fn send(&self, item: K, prio: P) {
-        let mut pq = self.heap.lock().expect("Mutex not poisoned");
-        pq.0.push(QueueEntry::Item(item, prio));
-        pq.1 += 1;
+        self.in_progress.fetch_add(1, atomic::Ordering::SeqCst);
+        self.is_drained.store(false, atomic::Ordering::SeqCst);
+        self.heap
+            .lock()
+            .expect("Mutex not poisoned")
+            .push(QueueEntry::Item(item, prio));
         self.notify.notify_one();
     }
 
-    fn may_send_drained(&self) {
-        let mut pq = self.heap.lock().expect("Mutex not poisoned");
-        if pq.1 == 0 {
-            pq.0.push(QueueEntry::Drained);
+    /// Send the 'Drained' message
+    fn send_drained(&self) {
+        if self
+            .is_drained
+            .compare_exchange(
+                false,
+                true,
+                atomic::Ordering::SeqCst,
+                atomic::Ordering::SeqCst,
+            )
+            .is_ok()
+        {
+            self.in_progress.fetch_add(1, atomic::Ordering::SeqCst);
+            self.heap
+                .lock()
+                .expect("Mutex not poisoned")
+                .push(QueueEntry::Drained);
+            self.notify.notify_one();
         }
-        self.notify.notify_one();
     }
 
     /// Returns the smallest item from a queue. This item is wraped in a ReceiveGuard/QueueEntry
     pub fn recv(&self) -> ReceiveGuard<K, P> {
-        let mut pq = self
+        let entry = self
             .notify
-            .wait_while(self.heap.lock().expect("Mutex not poisoned"), |pq| {
-                pq.0.is_empty()
+            .wait_while(self.heap.lock().expect("Mutex not poisoned"), |heap| {
+                heap.is_empty()
             })
-            .expect("Mutex not poisoned");
-
-        let entry = pq.0.pop().unwrap();
-        if let QueueEntry::Item(_, _) = entry {
-            pq.1 -= 1;
-        }
+            .expect("Mutex not poisoned")
+            .pop()
+            .unwrap();
 
         ReceiveGuard::new(entry, self)
     }
 
-    // pub fn try_send(&self, item: K, prio: P) -> Option<K, P> {
-    //     todo!()
-    // }
+    /// Try to get the smallest item from a queue. Will return Some<ReceiveGuard> when an entry was available.
+    pub fn try_recv(&self) -> Option<ReceiveGuard<K, P>> {
+        match self.heap.try_lock() {
+            Ok(mut heap) => heap.pop().map(|entry| ReceiveGuard::new(entry, self)),
+            Err(TryLockError::WouldBlock) => None,
+            _ => panic!("Poisoned Mutex"),
+        }
+    }
 
-    // pub fn try_recv(&self) -> Option<ReceiveGuard<K, P>>> {
+    // pub fn try_send(&self, item: K, prio: P) -> Option<K, P> {
     //     todo!()
     // }
 
@@ -216,7 +242,9 @@ where
     P: PartialOrd + Default + Ord,
 {
     fn drop(&mut self) {
-        self.pq.may_send_drained();
+        if self.pq.in_progress.fetch_sub(1, atomic::Ordering::SeqCst) == 1 {
+            self.pq.send_drained()
+        }
     }
 }
 
@@ -226,9 +254,11 @@ mod tests {
     use std::sync::Arc;
 
     use super::{PriorityQueue, QueueEntry};
+    use crate::test;
 
     #[test]
     fn smoke() {
+        test::init_env_logging();
         let queue: PriorityQueue<String, u64> = PriorityQueue::new();
         queue.send("test 1".to_string(), 1);
         queue.send("test 3".to_string(), 3);
@@ -237,37 +267,62 @@ mod tests {
         assert_eq!(*queue.recv(), QueueEntry::Item("test 2".to_string(), 2));
         assert_eq!(*queue.recv(), QueueEntry::Item("test 3".to_string(), 3));
         assert_eq!(*queue.recv(), QueueEntry::Drained);
+        assert!(queue.try_recv().is_none());
+    }
+
+    #[test]
+    fn try_recv() {
+        test::init_env_logging();
+        let queue: PriorityQueue<String, u64> = PriorityQueue::new();
+        queue.send("test 1".to_string(), 1);
+        queue.send("test 3".to_string(), 3);
+        queue.send("test 2".to_string(), 2);
+        assert!(queue.try_recv().is_some());
+        assert!(queue.try_recv().is_some());
+        assert!(queue.try_recv().is_some());
+        assert!(queue.try_recv().is_some());
+        assert!(queue.try_recv().is_none());
+        assert!(queue.try_recv().is_none());
     }
 
     #[test]
     fn threads() {
+        test::init_env_logging();
         let queue: Arc<PriorityQueue<String, u64>> = Arc::new(PriorityQueue::new());
 
-        let send_queue = queue.clone();
-        let send_thread = thread::spawn(move || {
-            send_queue.send("test 1".to_string(), 1);
-            send_queue.send("test 3".to_string(), 3);
-            send_queue.send("test 2".to_string(), 2);
+        let thread1_queue = queue.clone();
+        let thread1 = thread::spawn(move || {
+            thread1_queue.send("test 1".to_string(), 1);
+            thread1_queue.send("test 3".to_string(), 3);
+            thread1_queue.send("test 2".to_string(), 2);
         });
 
-        let receive_queue = queue.clone();
-        let receive_thread = thread::spawn(move || {
+        let thread2_queue = queue.clone();
+        let thread2 = thread::spawn(move || {
             assert_eq!(
-                *receive_queue.recv(),
+                *thread2_queue.recv(),
                 QueueEntry::Item("test 1".to_string(), 1)
             );
             assert_eq!(
-                *receive_queue.recv(),
+                *thread2_queue.recv(),
                 QueueEntry::Item("test 2".to_string(), 2)
             );
             assert_eq!(
-                *receive_queue.recv(),
+                *thread2_queue.recv(),
                 QueueEntry::Item("test 3".to_string(), 3)
             );
-            assert_eq!(*receive_queue.recv(), QueueEntry::Drained);
+            assert!(thread2_queue.recv().is_drained());
+            assert!(thread2_queue.try_recv().is_none());
+            thread2_queue.send("test 4".to_string(), 4);
+            assert_eq!(
+                *thread2_queue.recv(),
+                QueueEntry::Item("test 4".to_string(), 4)
+            );
+            assert!(thread2_queue.recv().is_drained());
+            assert!(thread2_queue.try_recv().is_none());
         });
 
-        send_thread.join().unwrap();
-        receive_thread.join().unwrap();
+        thread1.join().unwrap();
+        thread2.join().unwrap();
     }
 }
