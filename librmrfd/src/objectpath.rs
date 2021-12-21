@@ -51,9 +51,24 @@ impl ObjectPath {
 
     /// Create a new PathBuf from the given ObjectPath.
     pub fn to_pathbuf(&self) -> PathBuf {
+        // TODO: iterative impl
         let mut target = PathBuf::new();
         self.pathbuf_push_parents(&mut target, 1 /* for root delimter */);
         target
+    }
+
+    fn parent_depth(&self, depth: u16) -> u16 {
+        if let Some(parent) = &self.parent {
+            parent.parent_depth(depth + 1)
+        } else {
+            depth
+        }
+    }
+
+    /// Count the number of components in the path
+    pub fn depth(&self) -> u16 {
+        // TODO: iterative impl
+        self.parent_depth(1)
     }
 
     pub fn name(&self) -> &OsStr {
