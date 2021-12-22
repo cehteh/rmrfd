@@ -84,15 +84,15 @@ impl Inventory {
                 let subdir = ObjectPath::subobject(path, self.names.interning(entry.file_name()));
 
                 // The Order of directory traversal is defined by the 64bit priority in the
-                // PriorityQueue. This 64bit are composed of the inode number added by high
-                // 16bit part for the directory depth (inversed from u64::MAX down). This
-                // results in that directories are traversed depth first in inode increasing order.
+                // PriorityQueue. This 64bit are composed of the inode number added directory
+                // depth inversed from u64::MAX down shifted by 48 bits (resulting in the
+                // upper 16bits for the priority). This results in that directories are
+                // traversed depth first in inode increasing order.
                 let dir_prio = ((u16::MAX - subdir.depth()) as u64) << 48;
                 let message = DirectoryGatherMessage::new_dir(subdir);
 
                 self.dirs_queue
                     .send(message.with_parent(dir), dir_prio + entry.inode());
-                Ok(()) // TODO: not returing anything?
             }
             // TODO: split here on simple-type
             _ => {
@@ -105,10 +105,9 @@ impl Inventory {
                 })?;
 
                 trace!("file: {:?}", path.to_pathbuf().join(entry.file_name()));
-
-                Ok(()) // TODO: not returing anything?
             }
         }
+        Ok(())
     }
 
     /// sends error to output channel and returns it
@@ -180,7 +179,7 @@ impl Inventory {
     pub fn load_dir_recursive(&self, path: Arc<ObjectPath>) {
         self.dirs_queue.send(
             DirectoryGatherMessage::new_dir(path),
-            0, // start message priority instead depth/inode calculation
+            u64::MAX, // initial message priority instead depth/inode calculation, added directories are processed at the lowest priority
         );
     }
 }
@@ -228,7 +227,7 @@ impl Eq for InventoryKey {}
 /// Messages on the input queue, directories to be processed.
 #[derive(Debug)]
 enum DirectoryGatherMessage {
-    /// path and parent handle of a directory to be traversed. The handle to the directory
+    /// Path and parent handle of a directory to be traversed. The handle to the directory
     /// itself will be opened by the thread processing it.
     TraverseDirectory {
         path:       Arc<ObjectPath>,
