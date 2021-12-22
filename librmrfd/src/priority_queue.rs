@@ -10,7 +10,6 @@
 //             'try_merge_send()'.
 //!
 use std::sync::{Condvar, Mutex, TryLockError};
-use std::ops::Deref;
 use std::collections::BinaryHeap;
 use std::sync::atomic::{self, AtomicBool, AtomicUsize};
 

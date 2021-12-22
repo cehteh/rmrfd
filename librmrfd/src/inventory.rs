@@ -1,30 +1,27 @@
+//! Inventory
+
 use std::io;
-use std::fs::{read_dir, Metadata};
+use std::fs::Metadata;
 use std::os::unix::fs::MetadataExt;
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
-use std::os::unix::fs::DirEntryExt2;
 use std::cmp::Ordering;
-use std::sync::{
-    atomic::{self, AtomicUsize},
-    Mutex, RwLock,
-};
+use std::sync::atomic::{self, AtomicUsize};
 
-use easy_error::{bail, ensure, Error, ResultExt, Terminator};
-use crossbeam::channel::{bounded, unbounded, Receiver, Sender};
+use easy_error::{Error, ResultExt};
 use openat_ct as openat;
 use openat::{Dir, SimpleType};
 #[allow(unused_imports)]
 pub use log::{debug, error, info, trace, warn};
 
-use crate::{InternedNames, ObjectPath};
+use crate::{InternedNames, ObjectPath, PriorityQueue, QueueEntry};
 
 /// Slightly better name for device identifiers returned from metadata.
 pub type DeviceId = u64;
 
 /// All names linked to a single file on disk.
+// TODO: keep this sorted, removing by bsearch? let idx = s.binary_search(&num).unwrap_or_else(|x| x); s.insert(idx, num);
 pub type ObjectList = Vec<std::sync::Arc<ObjectPath>>;
 
 /// Create a space efficient store for file metadata of files larger than a certain
@@ -36,11 +33,8 @@ pub struct Inventory {
     names:   InternedNames,
 
     // thread management
-    input: (
-        Sender<DirectoryGatherMessage>,
-        Receiver<DirectoryGatherMessage>,
-    ),
-    job_count:    AtomicUsize,
+    dirs_queue: PriorityQueue<DirectoryGatherMessage, u64>,
+
     thread_count: AtomicUsize,
 
     // output: (Sender<InventoryEntries>, Receiver<InventoryEntries>),
@@ -56,52 +50,49 @@ impl Inventory {
     /// used for deleting the biggiest files (with all hardlinks to be deleted) first, setting
     /// this blockcount to some reasonably higher number can save a lot memory. Files not
     /// indexed in the directory will get deleted anyway on a later pass.
-    pub fn new(min_blockcount: u64, num_threads: usize) -> Arc<Inventory> {
+    pub fn new(min_blockcount: u64, num_threads: usize) -> io::Result<Arc<Inventory>> {
         let inventory = Arc::new(Inventory {
             entries: HashMap::new(),
             names: InternedNames::new(),
-            input: unbounded(),
-            job_count: AtomicUsize::new(0),
+            dirs_queue: PriorityQueue::new(),
             thread_count: AtomicUsize::new(0),
             min_blockcount,
         });
 
-        (0..num_threads).for_each(|_| {
-            inventory.clone().spawn_thread();
-        });
+        (0..num_threads).try_for_each(|_| -> io::Result<()> {
+            inventory.clone().spawn_thread()?;
+            Ok(())
+        })?;
 
-        inventory
+        Ok(inventory)
     }
 
     #[inline(always)]
     fn process_entry(
         &self,
         entry: io::Result<openat::Entry>,
-        dir: &Arc<Dir>,
-        path: &Arc<ObjectPath>,
+        dir: Arc<Dir>,
+        path: Arc<ObjectPath>,
     ) -> Result<(), Error> {
         // FIXME: when iterating at a certain depth (before number of file handles running
-        // out) then dont keep sub dir handles open in an Arc, needs a different strategy then.
+        // out) then dont keep sub dir handles open in an Arc, needs a different strategy
+        // then. (break parent Dir, start with a fresh Dir handle)
         let entry = entry.context("Invalid directory entry")?;
         match entry.simple_type() {
             Some(SimpleType::Dir) => {
-                let subdir =
-                    ObjectPath::subobject(path.clone(), self.names.interning(entry.file_name()));
+                trace!("dir: {:?}", path.to_pathbuf().join(entry.file_name()));
+                let subdir = ObjectPath::subobject(path, self.names.interning(entry.file_name()));
 
-                let message = DirectoryGatherMessage::new_dir(subdir.clone());
+                // The Order of directory traversal is defined by the 64bit priority in the
+                // PriorityQueue. This 64bit are composed of the inode number added by high
+                // 16bit part for the directory depth (inversed from u64::MAX down). This
+                // results in that directories are traversed depth first in inode increasing order.
+                let dir_prio = ((u16::MAX - subdir.depth()) as u64) << 48;
+                let message = DirectoryGatherMessage::new_dir(subdir);
 
-                self.job_count.fetch_add(1, atomic::Ordering::Release);
-                Ok(self
-                    .input
-                    .0
-                    .send(message.with_parent(dir.clone()))
-                    .with_context(|| {
-                        format!("Failed to send message for: {:?}", subdir.to_pathbuf())
-                    })
-                    .map_err(|err| {
-                        self.job_count.fetch_sub(1, atomic::Ordering::Release);
-                        err
-                    })?)
+                self.dirs_queue
+                    .send(message.with_parent(dir), dir_prio + entry.inode());
+                Ok(()) // TODO: not returing anything?
             }
             // TODO: split here on simple-type
             _ => {
@@ -115,79 +106,82 @@ impl Inventory {
 
                 trace!("file: {:?}", path.to_pathbuf().join(entry.file_name()));
 
-                Ok(()) //todo!()
+                Ok(()) // TODO: not returing anything?
             }
         }
     }
 
     /// sends error to output channel and returns it
-    fn send_error<T>(&self, err: Error) -> Result<T, Error> {
+    fn send_error<T>(&self, err: Error) {
         error!("{:?}", err);
         // TODO: send error to output
-        Err(err)
     }
 
-    fn spawn_thread(self: Arc<Self>) {
+    fn spawn_thread(self: Arc<Self>) -> io::Result<thread::JoinHandle<()>> {
         thread::Builder::new()
             .name(format!(
                 "inventory_{}",
-                self.job_count.fetch_add(1, atomic::Ordering::Relaxed)
+                self.thread_count.fetch_add(1, atomic::Ordering::Relaxed)
             ))
             .spawn(move || {
                 loop {
-                    let message = self.input.1.recv();
-
-                    trace!("received message: {:?}", message);
                     use DirectoryGatherMessage::*;
 
-                    match message
-                        .context("Message receive error")
-                        .map_err::<Result<DirectoryGatherMessage, Error>, _>(|e| self.send_error(e))
-                        .ok()
-                    {
-                        Some(TraverseDirectory { path, parent_dir }) => {
+                    match self.dirs_queue.recv().entry() {
+                        QueueEntry::Entry(TraverseDirectory { path, parent_dir }, _prio) => {
                             match &parent_dir {
                                 Some(dir) => dir.sub_dir(path.name()),
-                                None => Dir::open(&path.to_pathbuf()),
+                                None => openat::Dir::open(&path.to_pathbuf()),
                             }
-                            .and_then(|dir| {
+                            .map(|dir| {
+                                trace!(
+                                    "opened fd {:?}: for {:?}: depth {}",
+                                    dir,
+                                    path.to_pathbuf(),
+                                    path.depth()
+                                );
                                 let dir = Arc::new(dir);
-                                Ok(dir
-                                    .list_self()
-                                    .and_then(|dir_iter| {
-                                        trace!("traverse dir: {:?}", path.to_pathbuf());
-                                        Ok(dir_iter.for_each(|entry| {
-                                            self.process_entry(entry, &dir, &path)
+                                dir.list_self()
+                                    .map(|dir_iter| {
+                                        dir_iter.for_each(|entry| {
+                                            self.process_entry(entry, dir.clone(), path.clone())
                                                 .context("Could not process entry")
-                                                .map_err(|e| self.send_error::<()>(e));
-                                        }))
+                                                .map_err(|e| self.send_error::<()>(e))
+                                                .ok();
+                                        })
+                                    })
+                                    .map_err(|err| {
+                                        error!("{:?}: {:?}", *dir, err);
+                                        err
                                     })
                                     .with_context(|| {
-                                        format!("Could not iterate: {:?}", path.to_pathbuf())
+                                        format!(
+                                            "{:?}: Could not iterate {:?}",
+                                            *dir,
+                                            path.to_pathbuf()
+                                        )
                                     })
-                                    .map_err(|e| self.send_error::<()>(e.into())))
+                                    .map_err(|e| self.send_error::<()>(e))
                             })
                             .with_context(|| format!("Could not open: {:?}", path.to_pathbuf()))
-                            .map_err(|e| self.send_error::<()>(e.into()));
-
-                            if self.job_count.fetch_sub(1, atomic::Ordering::Acquire) == 1 {
-                                // TODO: send 'Done' message
-                            }
+                            .map_err(|e| self.send_error::<()>(e))
+                            .ok();
                         }
-                        None => { /* just drop the message, it was a Dud */ }
+                        QueueEntry::Drained => {
+                            trace!("drained!!!");
+                        }
+                        _ => unreachable!(),
                     }
                 }
-            });
+            })
     }
 
     /// Adds a directory to the processing queue of the inventory.
-    pub fn load_dir_recursive(&self, path: Arc<ObjectPath>) -> Result<(), Error> {
-        self.job_count.fetch_add(1, atomic::Ordering::Release);
-        Ok(self
-            .input
-            .0
-            .send(DirectoryGatherMessage::new_dir(path))
-            .context("Failed to send message")?)
+    pub fn load_dir_recursive(&self, path: Arc<ObjectPath>) {
+        self.dirs_queue.send(
+            DirectoryGatherMessage::new_dir(path),
+            0, // start message priority instead depth/inode calculation
+        );
     }
 }
 
@@ -288,10 +282,11 @@ mod test {
     fn load_dir() {
         test::init_env_logging();
 
-        let inventory = Inventory::new(64, 8);
-        inventory.load_dir_recursive(ObjectPath::new(".."));
+        let inventory = Inventory::new(64, 1).unwrap();
+        inventory.load_dir_recursive(ObjectPath::new("."));
 
         // FIXME: wait for threads
         std::thread::sleep(std::time::Duration::from_millis(10000000));
+        // std::thread::sleep(std::time::Duration::from_millis(1000));
     }
 }

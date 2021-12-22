@@ -71,6 +71,7 @@ impl ObjectPath {
         self.parent_depth(1)
     }
 
+    /// Returns an reference to the name of the object, without any preceding path components.
     pub fn name(&self) -> &OsStr {
         &self.name
     }

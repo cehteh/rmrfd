@@ -1,5 +1,4 @@
 //! Rust library to provide the functionality for the rmrfd
-
 #![warn(missing_docs)]
 #![warn(rustdoc::missing_crate_level_docs)]
 #![feature(hash_set_entry)]
@@ -19,7 +18,7 @@ mod rmrfd;
 pub use rmrfd::Rmrfd;
 
 mod priority_queue;
-pub use priority_queue::PriorityQueue;
+pub use priority_queue::{PriorityQueue, QueueEntry, ReceiveGuard};
 
 #[cfg(test)]
 mod test {

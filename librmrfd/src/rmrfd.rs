@@ -16,7 +16,7 @@ pub struct Rmrfd {
 impl Rmrfd {
     /// Delegate construction to a builder
     #[must_use = "configure the builder and finally call build()"]
-    pub fn new() -> RmrfdBuilder {
+    pub fn build() -> RmrfdBuilder {
         RmrfdBuilder::default()
     }
 }
@@ -73,11 +73,11 @@ impl RmrfdBuilder {
     }
 
     /// Creates the Rmrfd.
-    pub fn run(self) -> Rmrfd {
-        Rmrfd {
-            inventory: Inventory::new(self.min_blockcount, self.inventory_threads),
+    pub fn run(self) -> io::Result<Rmrfd> {
+        Ok(Rmrfd {
+            inventory: Inventory::new(self.min_blockcount, self.inventory_threads)?,
             rmrf_dirs: self.rmrf_dirs,
-        }
+        })
     }
 }
 
@@ -89,11 +89,10 @@ mod tests {
 
     #[test]
     fn smoke() {
-        let rmrfd = Rmrfd::new()
+        let rmrfd = Rmrfd::build()
             .add_dir(OsStr::new("../"))
             .unwrap()
             .with_min_blockcount(64)
             .run();
-        //.unwrap();
     }
 }
