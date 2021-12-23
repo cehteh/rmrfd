@@ -57,18 +57,15 @@ impl ObjectPath {
         target
     }
 
-    fn parent_depth(&self, depth: u16) -> u16 {
-        if let Some(parent) = &self.parent {
-            parent.parent_depth(depth + 1)
-        } else {
-            depth
-        }
-    }
-
-    /// Count the number of components in the path
+    /// Returns the number of components in the path
     pub fn depth(&self) -> u16 {
-        // TODO: iterative impl
-        self.parent_depth(1)
+        let mut counter = 1u16;
+        let mut itr = self;
+        while let Some(parent) = &itr.parent {
+            itr = parent;
+            counter += 1;
+        }
+        counter
     }
 
     /// Returns an reference to the name of the object, without any preceding path components.
