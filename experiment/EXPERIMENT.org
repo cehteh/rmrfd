@@ -204,3 +204,314 @@ strings in cache: 144908
 
  * Highwater config for as much things stored in the inventory, do a delete run then before continuing
  * min blocks filter
+
+
+
+
+* Test with real implementation
+
+** On Hot Cache / Workstation
+*** Baseline: 'find'
+
+Command being timed: "find"
+	User time (seconds): 294.86
+	System time (seconds): 1011.92
+	Percent of CPU this job got: 31%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:09:55
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 6896
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 7
+	Minor (reclaiming a frame) page faults: 42768
+	Voluntary context switches: 20142084
+	Involuntary context switches: 132101
+	Swaps: 0
+	File system inputs: 177904936
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+
+
+*** 8 Threads
+000228814180: 00001539.959612: TRACE: librmrfd/src/inventory.rs:181: inventory_5: drained!!!
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 1887.38
+	System time (seconds): 3233.28
+	Percent of CPU this job got: 331%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 25:43.21
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 8048
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 22
+	Minor (reclaiming a frame) page faults: 1758
+	Voluntary context switches: 198397142
+	Involuntary context switches: 849591
+	Swaps: 0
+	File system inputs: 180716984
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+
+*** 4 Threads
+
+000228814180: 00001811.470290: TRACE: librmrfd/src/inventory.rs:181: inventory_3: drained!!!
+^CCommand terminated by signal 2
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 1586.70
+	System time (seconds): 2381.98
+	Percent of CPU this job got: 216%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 30:33.26
+
+
+*** 16 Threads
+
+000228814180: 00001264.043983: TRACE: librmrfd/src/inventory.rs:181: inventory_6: drained!!!
+test inventory::test::load_dir ... ok
+
+** External HDD
+
+freshly mounted on each test
+
+*** 1 thead / inode baseline
+
+000000021347: 00000022.340123: TRACE: librmrfd/src/inventory.rs:176: inventory_0: drained!!!
+^CCommand terminated by signal 2
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 0.18
+	System time (seconds): 0.22
+	Percent of CPU this job got: 1%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:25.10
+
+*** 4 Threads
+
+**** by Number
+000000021347: 00000023.821039: TRACE: librmrfd/src/inventory.rs:182: inventory_2: drained!!!
+^CCommand terminated by signal 2
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 0.18
+	System time (seconds): 0.32
+	Percent of CPU this job got: 2%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:24.79
+
+        
+**** by Inode
+
+000000021347: 00000021.805803: TRACE: librmrfd/src/inventory.rs:182: inventory_2: drained!!!
+^CCommand terminated by signal 2
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 0.18
+	System time (seconds): 0.34
+	Percent of CPU this job got: 2%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:22.48
+
+
+*** 8 Threads
+
+**** by Number
+000000021347: 00000020.510065: TRACE: librmrfd/src/inventory.rs:182: inventory_0: drained!!!
+^CCommand terminated by signal 2
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 0.23
+	System time (seconds): 0.30
+	Percent of CPU this job got: 2%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:22.18
+
+
+**** by Inode
+
+000000021347: 00000021.572653: TRACE: librmrfd/src/inventory.rs:182: inventory_1: drained!!!
+^CCommand terminated by signal 2
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 0.24
+	System time (seconds): 0.34
+	Percent of CPU this job got: 2%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:22.44
+
+
+*** 16 Threads
+**** by Number
+000000021347: 00000019.995372: TRACE: librmrfd/src/inventory.rs:182: inventory_9: drained!!!
+^CCommand terminated by signal 2
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 0.17
+	System time (seconds): 0.39
+	Percent of CPU this job got: 2%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:21.49
+
+**** by Inode
+
+000000021347: 00000021.705355: TRACE: librmrfd/src/inventory.rs:182: inventory_5: drained!!!
+^CCommand terminated by signal 2
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 0.24
+	System time (seconds): 0.38
+	Percent of CPU this job got: 2%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:22.79
+
+
+* Output backlog
+
+With 8 threads
+
+** 1
+000190243497: 00001153.354985:  INFO: librmrfd/src/inventory.rs:331: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 1153.36s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 793.51
+	System time (seconds): 2795.18
+	Percent of CPU this job got: 311%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 19:13.37
+
+** 128
+000190243497: 00000972.165376:  INFO: librmrfd/src/inventory.rs:331: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 972.17s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 686.39
+	System time (seconds): 2459.67
+	Percent of CPU this job got: 323%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 16:12.18
+
+** 8192
+
+000190243497: 00000841.753147:  INFO: librmrfd/src/inventory.rs:331: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 841.75s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 613.58
+	System time (seconds): 2243.58
+	Percent of CPU this job got: 339%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 14:01.76
+
+** 65536
+000190243497: 00000820.444208:  INFO: librmrfd/src/inventory.rs:331: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 820.45s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 597.43
+	System time (seconds): 2239.90
+	Percent of CPU this job got: 345%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 13:40.46
+
+** 1048576
+
+000190243497: 00000822.158566:  INFO: librmrfd/src/inventory.rs:331: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 822.17s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 607.67
+	System time (seconds): 2255.01
+	Percent of CPU this job got: 348%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 13:42.19
+
+** 104857600 / 16 threads
+
+000190619302: 00000548.084814:  INFO: librmrfd/src/inventory.rs:331: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 550.17s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 674.86
+	System time (seconds): 2720.89
+	Percent of CPU this job got: 616%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 9:10.39
+
+** w/o logging
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 632.85
+	System time (seconds): 2598.96
+	Percent of CPU this job got: 654%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 8:14.07
+
+
+* with block-size filter
+
+** 65536 / 16 threads / 32kb filter (RmrfdBuilder default)
+
+000038593286: 00000466.776421:  INFO: librmrfd/src/inventory.rs:327: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 466.78s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 275.08
+	System time (seconds): 2453.62
+	Percent of CPU this job got: 584%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 7:46.78
+
+** 65536 / 32 threads / 32kb filter (RmrfdBuilder default)
+
+000038593286: 00000310.552948:  INFO: librmrfd/src/inventory.rs:325: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 310.55s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 275.66
+	System time (seconds): 3176.23
+	Percent of CPU this job got: 1111%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 5:10.56
+
+** 65536 / 64 threads / 32kb filter
+
+000038593286: 00000275.421128:  INFO: librmrfd/src/inventory.rs:325: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 275.42s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 263.43
+	System time (seconds): 4459.65
+	Percent of CPU this job got: 1714%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 4:35.43
+
+** 65536 / 128 threads / 32kb filter
+
+000038593286: 00000262.923595:  INFO: librmrfd/src/inventory.rs:325: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 262.92s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 257.62
+	System time (seconds): 4797.21
+	Percent of CPU this job got: 1922%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 4:22.93
+
+
+** 4194304 / 256 threads / 32kb filter
+
+000038593286: 00000245.539404:  INFO: librmrfd/src/inventory.rs:325: inventory::test::load_dir: used 1
+test inventory::test::load_dir ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 245.57s
+
+	Command being timed: "/home/ct/src/rmrfd/target/release/deps/librmrfd-c17f69719718dfee inventory::test::load_dir --ignored"
+	User time (seconds): 284.10
+	System time (seconds): 3953.25
+	Percent of CPU this job got: 1725%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 4:05.63
