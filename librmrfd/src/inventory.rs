@@ -1,10 +1,12 @@
-//! Inventory
-
+//! The InventoryGatherer manages threads which walking directories. Each sub-directory found
+//! is added to the list of directories to process. Files are pre-filtered by size and when
+//! pass send to an output queue.
 use std::io;
-use std::fs::Metadata;
-use std::os::unix::fs::MetadataExt;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::sync::{
+    mpsc::{sync_channel, Receiver, SyncSender},
+    Arc,
+};
 use std::thread;
 use std::cmp::Ordering;
 use std::sync::atomic::{self, AtomicUsize};
@@ -26,45 +28,68 @@ pub type ObjectList = Vec<std::sync::Arc<ObjectPath>>;
 
 /// Create a space efficient store for file metadata of files larger than a certain
 /// min_blocksize.  This is used to find whcih files to delete first for most space efficient
-/// deletion.  There should be only one 'Inventory' around as it is used to merge hardlinks
+/// deletion.  There should be only one 'InventoryGatherer' around as it is used to merge hardlinks
 /// and needs to have a global picture of all indexed files.
-pub struct Inventory {
+pub struct InventoryGatherer {
     entries: HashMap<DeviceId, BTreeMap<InventoryKey, ObjectList>>,
     names:   InternedNames,
 
     // thread management
-    dirs_queue: PriorityQueue<DirectoryGatherMessage, u64>,
-
     thread_count: AtomicUsize,
 
-    // output: (Sender<InventoryEntries>, Receiver<InventoryEntries>),
+    // message queues
+    dirs_queue:           PriorityQueue<DirectoryGatherMessage, u64>,
+    inventory_send_queue: SyncSender<InventoryEntriesMessage>,
 
     // config section
-    min_blockcount: u64,
+    min_blocks: u64,
+
     // stats
+    inventory_send_queue_pending: AtomicUsize, /* PLANNED: implement a atomicstats crate for counters/min/max/avg etc */
 }
 
-impl Inventory {
-    /// Create an Inventory. The 'min_blockcount' sets a pre-filter for keeping only files
+impl InventoryGatherer {
+    /// Create an InventoryGatherer. The 'min_blocks' sets a pre-filter for keeping only files
     /// which have more than this much blocks (512 bytes) allocated. Since this inventory is
     /// used for deleting the biggiest files (with all hardlinks to be deleted) first, setting
     /// this blockcount to some reasonably higher number can save a lot memory. Files not
-    /// indexed in the directory will get deleted anyway on a later pass.
-    pub fn new(min_blockcount: u64, num_threads: usize) -> io::Result<Arc<Inventory>> {
-        let inventory = Arc::new(Inventory {
+    /// indexed in the directory will get deleted anyway on a later pass.  Returns a Result
+    /// tuple with an Arc<InventoryGatherer> and the output queue of gathered objects.
+    pub fn new(
+        min_blocks: u64,
+        num_threads: usize,
+        inventory_backlog: usize,
+    ) -> io::Result<(Arc<InventoryGatherer>, Receiver<InventoryEntriesMessage>)> {
+        let (inventory_send_queue, receiver) = sync_channel(inventory_backlog);
+
+        let inventory = Arc::new(InventoryGatherer {
             entries: HashMap::new(),
             names: InternedNames::new(),
             dirs_queue: PriorityQueue::new(),
+            inventory_send_queue,
             thread_count: AtomicUsize::new(0),
-            min_blockcount,
+            min_blocks,
+            inventory_send_queue_pending: AtomicUsize::new(0),
         });
 
         (0..num_threads).try_for_each(|_| -> io::Result<()> {
-            inventory.clone().spawn_thread()?;
+            inventory.clone().spawn_dir_thread()?;
             Ok(())
         })?;
 
-        Ok(inventory)
+        Ok((inventory, receiver))
+    }
+
+    #[inline(always)]
+    fn send_dir(&self, message: DirectoryGatherMessage, prio: u64) {
+        self.dirs_queue.send(message, prio);
+    }
+
+    #[inline(always)]
+    fn send_entry(&self, message: InventoryEntriesMessage) {
+        self.inventory_send_queue.send(message);
+        self.inventory_send_queue_pending
+            .fetch_add(1, atomic::Ordering::SeqCst);
     }
 
     #[inline(always)]
@@ -91,8 +116,7 @@ impl Inventory {
                 let dir_prio = ((u16::MAX - subdir.depth()) as u64) << 48;
                 let message = DirectoryGatherMessage::new_dir(subdir);
 
-                self.dirs_queue
-                    .send(message.with_parent(dir), dir_prio + entry.inode());
+                self.send_dir(message.with_parent(dir), dir_prio + entry.inode());
             }
             // TODO: split here on simple-type
             _ => {
@@ -105,6 +129,15 @@ impl Inventory {
                 })?;
 
                 trace!("file: {:?}", path.to_pathbuf().join(entry.file_name()));
+
+                // default to zero blocks when not available means it will be filtered out
+                let blocks = metadata.blocks().unwrap_or(0) as u64;
+                if blocks > self.min_blocks {
+                    self.send_entry(InventoryEntriesMessage::Entry(
+                        InventoryKey::new(blocks, entry.inode()),
+                        ObjectPath::subobject(path, self.names.interning(entry.file_name())),
+                    ));
+                }
             }
         }
         Ok(())
@@ -113,10 +146,10 @@ impl Inventory {
     /// sends error to output channel and returns it
     fn send_error<T>(&self, err: Error) {
         error!("{:?}", err);
-        // TODO: send error to output
+        self.send_entry(InventoryEntriesMessage::Err(err));
     }
 
-    fn spawn_thread(self: Arc<Self>) -> io::Result<thread::JoinHandle<()>> {
+    fn spawn_dir_thread(self: Arc<Self>) -> io::Result<thread::JoinHandle<()>> {
         thread::Builder::new()
             .name(format!(
                 "inventory_{}",
@@ -168,6 +201,7 @@ impl Inventory {
                         }
                         QueueEntry::Drained => {
                             trace!("drained!!!");
+                            self.send_entry(InventoryEntriesMessage::Done);
                         }
                         _ => unreachable!(),
                     }
@@ -177,7 +211,7 @@ impl Inventory {
 
     /// Adds a directory to the processing queue of the inventory.
     pub fn load_dir_recursive(&self, path: Arc<ObjectPath>) {
-        self.dirs_queue.send(
+        self.send_dir(
             DirectoryGatherMessage::new_dir(path),
             u64::MAX, // initial message priority instead depth/inode calculation, added directories are processed at the lowest priority
         );
@@ -185,17 +219,14 @@ impl Inventory {
 }
 
 #[derive(Debug)]
-struct InventoryKey {
+pub struct InventoryKey {
     blocks: u64,
     ino:    u64,
 }
 
 impl InventoryKey {
-    fn new(metadata: &Metadata) -> InventoryKey {
-        InventoryKey {
-            blocks: metadata.blocks(),
-            ino:    metadata.ino(),
-        }
+    fn new(blocks: u64, ino: u64) -> InventoryKey {
+        InventoryKey { blocks, ino }
     }
 }
 
@@ -250,42 +281,52 @@ impl DirectoryGatherMessage {
             self,
             DirectoryGatherMessage::TraverseDirectory { .. }
         ));
-        if let DirectoryGatherMessage::TraverseDirectory { parent_dir, .. } = &mut self {
-            *parent_dir = Some(parent);
-        };
+        let DirectoryGatherMessage::TraverseDirectory { parent_dir, .. } = &mut self;
+        *parent_dir = Some(parent);
         self
     }
 }
 
 /// Messages on the output queue, collected entries, 'Done' when the queue becomes empty and errors passed up
 #[derive(Debug)]
-enum InventoryEntriesMessage {
-    InventoryEntry(InventoryKey, Arc<ObjectPath>),
+pub enum InventoryEntriesMessage {
+    Entry(InventoryKey, Arc<ObjectPath>),
     Err(Error),
     Done,
 }
 
 #[cfg(test)]
 mod test {
-    use crate::*;
+    #[allow(unused_imports)]
+    pub use log::{debug, error, info, trace, warn};
+
+    use super::*;
 
     // tests
     #[test]
     fn smoke() {
-        test::init_env_logging();
-        let inventory = Inventory::new(64, 1);
+        crate::test::init_env_logging();
+        let _ = InventoryGatherer::new(64, 1, 128);
     }
 
     #[test]
     #[ignore]
     fn load_dir() {
-        test::init_env_logging();
+        crate::test::init_env_logging();
 
-        let inventory = Inventory::new(64, 1).unwrap();
+        let (inventory, receiver) = InventoryGatherer::new(64, 16, 65536).unwrap();
         inventory.load_dir_recursive(ObjectPath::new("."));
 
-        // FIXME: wait for threads
-        std::thread::sleep(std::time::Duration::from_millis(10000000));
-        // std::thread::sleep(std::time::Duration::from_millis(1000));
+        let mut out = std::path::PathBuf::new();
+        receiver
+            .iter()
+            .take_while(|msg| !matches!(msg, InventoryEntriesMessage::Done))
+            .for_each(|msg| {
+                let used = inventory
+                    .inventory_send_queue_pending
+                    .fetch_sub(1, atomic::Ordering::SeqCst);
+                debug!("used {}", used);
+                trace!("msg {:?}", msg);
+            });
     }
 }

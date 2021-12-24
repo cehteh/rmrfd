@@ -5,12 +5,12 @@ use std::ffi::OsStr;
 use std::collections::HashMap;
 use std::os::unix::fs::MetadataExt;
 
-use crate::{DeviceId, Inventory, ObjectPath};
+use crate::{DeviceId, InventoryGatherer, ObjectPath};
 
 /// The daemon state
 pub struct Rmrfd {
-    inventory: Arc<Inventory>,
-    rmrf_dirs: HashMap<Arc<ObjectPath>, DeviceId>,
+    inventory_gatherer: Arc<InventoryGatherer>,
+    rmrf_dirs:          HashMap<Arc<ObjectPath>, DeviceId>,
 }
 
 impl Rmrfd {
@@ -30,22 +30,31 @@ pub struct RmrfdBuilder {
 }
 
 impl Default for RmrfdBuilder {
+    /// Create a RmrfdBuilder with reasonable defaults.
     fn default() -> Self {
         RmrfdBuilder {
-            min_blockcount:    0,
+            /// Filter for files bigger than 32kb smaller ones would only bloat memory and
+            /// give no much benefit when deleting in size order.
+            min_blockcount:    64,
             rmrf_dirs:         HashMap::new(),
-            inventory_threads: 1,
-            inventory_backlog: 128,
+            /// 16 io-threads seem to be a good balance between resources used and
+            /// performance.  ssd's could benefit from even more threads, while spinning hard
+            /// drives may see some performance impact. Note that this number of threads is
+            /// mostly io-bound and doesnt need to relate to the number of cores in the
+            /// system.
+            inventory_threads: 16,
+            /// 64k entries should rarely but is a compromise between speed vs memory usage.
+            inventory_backlog: 65536,
         }
     }
 }
 
 impl RmrfdBuilder {
     /// How many InventoryEntries can be pending. The consumer that adds InventoryEntries to
-    /// the Inventory should in most cases be much faster than the directory worker
+    /// the InventoryGatherer should in most cases be much faster than the directory worker
     /// threads. Thus this number can be small.
     pub fn with_inventory_backlog(mut self, n: usize) -> Self {
-        self.inventory_threads = n;
+        self.inventory_backlog = n;
         self
     }
 
@@ -74,8 +83,14 @@ impl RmrfdBuilder {
 
     /// Creates the Rmrfd.
     pub fn run(self) -> io::Result<Rmrfd> {
+        let (inventory_gatherer, receiver) = InventoryGatherer::new(
+            self.min_blockcount,
+            self.inventory_threads,
+            self.inventory_backlog,
+        )?;
+
         Ok(Rmrfd {
-            inventory: Inventory::new(self.min_blockcount, self.inventory_threads)?,
+            inventory_gatherer,
             rmrf_dirs: self.rmrf_dirs,
         })
     }
