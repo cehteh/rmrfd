@@ -5,8 +5,8 @@
 #![feature(dir_entry_ext2)]
 #![feature(io_error_more)]
 
-mod inventory;
-pub use inventory::{DeviceId, InventoryGatherer, ObjectList};
+mod inventory_gatherer;
+pub use inventory_gatherer::{DeviceId, InventoryGatherer, ObjectList};
 
 mod objectpath;
 pub use objectpath::ObjectPath;
