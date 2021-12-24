@@ -283,6 +283,7 @@ mod tests {
             thread1_queue.send("test 3".to_string(), 3);
             thread1_queue.send("test 2".to_string(), 2);
         });
+        thread1.join().unwrap();
 
         let thread2_queue = queue.clone();
         let thread2 = thread::spawn(move || {
@@ -309,7 +310,6 @@ mod tests {
             assert!(thread2_queue.try_recv().is_none());
         });
 
-        thread1.join().unwrap();
         thread2.join().unwrap();
     }
 }
