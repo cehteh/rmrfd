@@ -5,12 +5,12 @@ use std::ffi::OsStr;
 use std::collections::HashMap;
 use std::os::unix::fs::MetadataExt;
 
-use crate::{DeviceId, InventoryGatherer, ObjectPath};
+use crate::{metadata_types, InventoryGatherer, ObjectPath};
 
 /// The daemon state
 pub struct Rmrfd {
     inventory_gatherer: Arc<InventoryGatherer>,
-    rmrf_dirs:          HashMap<Arc<ObjectPath>, DeviceId>,
+    rmrf_dirs:          HashMap<Arc<ObjectPath>, metadata_types::dev_t>,
 }
 
 impl Rmrfd {
@@ -23,8 +23,8 @@ impl Rmrfd {
 
 /// Builder for constructing the daemon
 pub struct RmrfdBuilder {
-    min_blockcount:    u64,
-    rmrf_dirs:         HashMap<Arc<ObjectPath>, DeviceId>,
+    min_blockcount:    metadata_types::blksize_t,
+    rmrf_dirs:         HashMap<Arc<ObjectPath>, metadata_types::dev_t>,
     inventory_threads: usize,
     inventory_backlog: usize,
 }
@@ -65,7 +65,7 @@ impl RmrfdBuilder {
     }
 
     /// Filter for files only larger than these much (512 byte) blocks.
-    pub fn with_min_blockcount(mut self, c: u64) -> Self {
+    pub fn with_min_blockcount(mut self, c: metadata_types::blksize_t) -> Self {
         self.min_blockcount = c;
         self
     }

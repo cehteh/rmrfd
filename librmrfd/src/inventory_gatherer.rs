@@ -14,13 +14,11 @@ use std::sync::atomic::{self, AtomicUsize};
 use easy_error::{Error, ResultExt};
 use openat_ct as openat;
 use openat::{Dir, SimpleType};
+pub use openat::metadata_types;
 #[allow(unused_imports)]
 pub use log::{debug, error, info, trace, warn};
 
 use crate::{InternedNames, ObjectPath, PriorityQueue, QueueEntry};
-
-/// Slightly better name for device identifiers returned from metadata.
-pub type DeviceId = u64;
 
 /// All names linked to a single file on disk.
 // TODO: keep this sorted, removing by bsearch? let idx = s.binary_search(&num).unwrap_or_else(|x| x); s.insert(idx, num);
@@ -31,7 +29,7 @@ pub type ObjectList = Vec<std::sync::Arc<ObjectPath>>;
 /// deletion.  There should be only one 'InventoryGatherer' around as it is used to merge hardlinks
 /// and needs to have a global picture of all indexed files.
 pub struct InventoryGatherer {
-    entries: HashMap<DeviceId, BTreeMap<InventoryKey, ObjectList>>,
+    entries: HashMap<metadata_types::dev_t, BTreeMap<InventoryKey, ObjectList>>,
     names:   InternedNames,
 
     // thread management
@@ -42,7 +40,7 @@ pub struct InventoryGatherer {
     inventory_send_queue: SyncSender<InventoryEntriesMessage>,
 
     // config section
-    min_blocks: u64,
+    min_blocks: metadata_types::blkcnt_t,
 
     // stats
     inventory_send_queue_pending: AtomicUsize, /* PLANNED: implement a atomicstats crate for counters/min/max/avg etc */
@@ -56,7 +54,7 @@ impl InventoryGatherer {
     /// indexed in the directory will get deleted anyway on a later pass.  Returns a Result
     /// tuple with an Arc<InventoryGatherer> and the output queue of gathered objects.
     pub fn new(
-        min_blocks: u64,
+        min_blocks: metadata_types::blkcnt_t,
         num_threads: usize,
         inventory_backlog: usize,
     ) -> io::Result<(Arc<InventoryGatherer>, Receiver<InventoryEntriesMessage>)> {
@@ -131,9 +129,11 @@ impl InventoryGatherer {
                 trace!("file: {:?}", path.to_pathbuf().join(entry.file_name()));
 
                 // default to zero blocks when not available means it will be filtered out
-                let blocks = metadata.blocks().unwrap_or(0) as u64;
+                let blocks = metadata.blocks().unwrap_or(0);
+
                 if blocks > self.min_blocks {
                     self.send_entry(InventoryEntriesMessage::Entry(
+                        metadata.dev().unwrap_or(0),
                         InventoryKey::new(blocks, entry.inode()),
                         ObjectPath::subobject(path, self.names.interning(entry.file_name())),
                     ));
@@ -220,12 +220,12 @@ impl InventoryGatherer {
 
 #[derive(Debug)]
 pub struct InventoryKey {
-    blocks: u64,
-    ino:    u64,
+    blocks: metadata_types::blkcnt_t,
+    ino:    metadata_types::ino_t,
 }
 
 impl InventoryKey {
-    fn new(blocks: u64, ino: u64) -> InventoryKey {
+    fn new(blocks: metadata_types::blkcnt_t, ino: metadata_types::ino_t) -> InventoryKey {
         InventoryKey { blocks, ino }
     }
 }
@@ -290,7 +290,7 @@ impl DirectoryGatherMessage {
 /// Messages on the output queue, collected entries, 'Done' when the queue becomes empty and errors passed up
 #[derive(Debug)]
 pub enum InventoryEntriesMessage {
-    Entry(InventoryKey, Arc<ObjectPath>),
+    Entry(metadata_types::dev_t, InventoryKey, Arc<ObjectPath>),
     Err(Error),
     Done,
 }

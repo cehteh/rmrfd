@@ -6,7 +6,7 @@
 #![feature(io_error_more)]
 
 mod inventory_gatherer;
-pub use inventory_gatherer::{DeviceId, InventoryGatherer, ObjectList};
+pub use inventory_gatherer::{metadata_types, InventoryGatherer, ObjectList};
 
 mod objectpath;
 pub use objectpath::ObjectPath;

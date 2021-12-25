@@ -9,7 +9,7 @@ repository = "https://github.com/cehteh/rmrfd.git"
 keywords = ["filesystem", "daemon", "unix"]
 
 [dependencies]
-openat_ct = "0.2.0-pre3"
+openat_ct = "0.2.0-pre4"
 log = "0.4"
 easy-error = "1.0.0"
 
