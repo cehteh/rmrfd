@@ -32,9 +32,6 @@ pub struct InventoryGatherer {
     entries: HashMap<metadata_types::dev_t, BTreeMap<InventoryKey, ObjectList>>,
     names:   InternedNames,
 
-    // thread management
-    thread_count: AtomicUsize,
-
     // message queues
     dirs_queue:           PriorityQueue<DirectoryGatherMessage, u64>,
     inventory_send_queue: SyncSender<InventoryEntriesMessage>,
@@ -65,13 +62,12 @@ impl InventoryGatherer {
             names: InternedNames::new(),
             dirs_queue: PriorityQueue::new(),
             inventory_send_queue,
-            thread_count: AtomicUsize::new(0),
             min_blocks,
             inventory_send_queue_pending: AtomicUsize::new(0),
         });
 
-        (0..num_threads).try_for_each(|_| -> io::Result<()> {
-            inventory.clone().spawn_dir_thread()?;
+        (0..num_threads).try_for_each(|n| -> io::Result<()> {
+            inventory.clone().spawn_dir_thread(n)?;
             Ok(())
         })?;
 
@@ -149,12 +145,9 @@ impl InventoryGatherer {
         self.send_entry(InventoryEntriesMessage::Err(err));
     }
 
-    fn spawn_dir_thread(self: Arc<Self>) -> io::Result<thread::JoinHandle<()>> {
+    fn spawn_dir_thread(self: Arc<Self>, n: usize) -> io::Result<thread::JoinHandle<()>> {
         thread::Builder::new()
-            .name(format!(
-                "inventory_{}",
-                self.thread_count.fetch_add(1, atomic::Ordering::Relaxed)
-            ))
+            .name(format!("rmrfd/gather/{}", n))
             .spawn(move || {
                 loop {
                     use DirectoryGatherMessage::*;
