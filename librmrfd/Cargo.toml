@@ -9,9 +9,9 @@ repository = "https://github.com/cehteh/rmrfd.git"
 keywords = ["filesystem", "daemon", "unix"]
 
 [dependencies]
-openat_ct = "0.2.0-pre4"
+dirinventory = "1.0.0-beta2"
 log = "0.4"
-easy-error = "1.0.0"
+crossbeam-channel = "0.5"
 
 [dev-dependencies]
 env_logger = "0.9"

@@ -5,11 +5,14 @@ use std::ffi::OsStr;
 use std::collections::HashMap;
 use std::os::unix::fs::MetadataExt;
 
-use crate::{metadata_types, InventoryGatherer, ObjectPath};
+use dirinventory::{
+    openat, openat::metadata_types, Dir, DynResult, Gatherer, GathererBuilder, GathererHandle,
+    ObjectPath,
+};
 
 /// The daemon state
 pub struct Rmrfd {
-    inventory_gatherer: Arc<InventoryGatherer>,
+    inventory_gatherer: Arc<Gatherer>,
     rmrf_dirs:          HashMap<Arc<ObjectPath>, metadata_types::dev_t>,
 }
 
@@ -23,28 +26,20 @@ impl Rmrfd {
 
 /// Builder for constructing the daemon
 pub struct RmrfdBuilder {
-    min_blockcount:    metadata_types::blksize_t,
-    rmrf_dirs:         HashMap<Arc<ObjectPath>, metadata_types::dev_t>,
-    inventory_threads: usize,
-    inventory_backlog: usize,
+    gatherer_builder: GathererBuilder,
+    min_blockcount:   metadata_types::blksize_t,
+    rmrf_dirs:        HashMap<Arc<ObjectPath>, metadata_types::dev_t>,
 }
 
 impl Default for RmrfdBuilder {
     /// Create a RmrfdBuilder with reasonable defaults.
     fn default() -> Self {
         RmrfdBuilder {
+            gatherer_builder: Gatherer::build(),
             /// Filter for files bigger than 32kb smaller ones would only bloat memory and
             /// give no much benefit when deleting in size order.
-            min_blockcount:    64,
-            rmrf_dirs:         HashMap::new(),
-            /// 16 io-threads seem to be a good balance between resources used and
-            /// performance.  ssd's could benefit from even more threads, while spinning hard
-            /// drives may see some performance impact. Note that this number of threads is
-            /// mostly io-bound and doesnt need to relate to the number of cores in the
-            /// system.
-            inventory_threads: 16,
-            /// 64k entries should rarely but is a compromise between speed vs memory usage.
-            inventory_backlog: 65536,
+            min_blockcount:   64,
+            rmrf_dirs:        HashMap::new(),
         }
     }
 }
@@ -54,13 +49,13 @@ impl RmrfdBuilder {
     /// the InventoryGatherer should in most cases be much faster than the directory worker
     /// threads. Thus this number can be small.
     pub fn with_inventory_backlog(mut self, n: usize) -> Self {
-        self.inventory_backlog = n;
+        self.gatherer_builder = self.gatherer_builder.with_inventory_backlog(n);
         self
     }
 
     /// How many worker threads are used to gather the inventory
     pub fn with_inventory_threads(mut self, n: usize) -> Self {
-        self.inventory_threads = n;
+        self.gatherer_builder = self.gatherer_builder.with_gather_threads(n);
         self
     }
 
@@ -81,13 +76,33 @@ impl RmrfdBuilder {
         Ok(self)
     }
 
-    /// Creates the Rmrfd.
+    /// Creates and starts the Rmrfd.
     pub fn run(self) -> io::Result<Rmrfd> {
-        let (inventory_gatherer, receiver) = InventoryGatherer::new(
-            self.min_blockcount,
-            self.inventory_threads,
-            self.inventory_backlog,
-        )?;
+        let (inventory_gatherer, receiver) = self.gatherer_builder.start(Box::new(
+            move |gatherer: GathererHandle,
+                  entry: openat::Entry,
+                  parent_path: Arc<ObjectPath>,
+                  parent_dir: Arc<Dir>|
+                  -> DynResult<()> {
+                match entry.simple_type() {
+                    // recurse subdirs
+                    Some(openat::SimpleType::Dir) => {
+                        gatherer.traverse_dir(&entry, parent_path.clone(), parent_dir.clone());
+                        Ok(())
+                    }
+                    // everything else is eligible for deletion
+                    _ => match parent_dir.metadata(entry.file_name()) {
+                        Ok(metadata) => {
+                            if metadata.size().unwrap_or(0) > self.min_blockcount {
+                                gatherer.output_metadata(&entry, parent_path, metadata);
+                            }
+                            Ok(())
+                        }
+                        Err(e) => Err(Box::new(e)),
+                    },
+                }
+            },
+        ))?;
 
         Ok(Rmrfd {
             inventory_gatherer,
