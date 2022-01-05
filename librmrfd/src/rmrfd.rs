@@ -119,6 +119,7 @@ mod tests {
 
     #[test]
     fn smoke() {
+        crate::tests::init_env_logging();
         let rmrfd = Rmrfd::build()
             .add_dir(OsStr::new("../"))
             .unwrap()

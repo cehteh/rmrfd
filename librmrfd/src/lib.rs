@@ -7,7 +7,7 @@ mod rmrfd;
 pub use rmrfd::Rmrfd;
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::io::Write;
     use std::sync::Once;
@@ -48,7 +48,7 @@ mod test {
     #[test]
     #[ignore]
     fn logger_speed() {
-        test::init_env_logging();
+        tests::init_env_logging();
 
         #[allow(unused_imports)]
         use log::{debug, error, info, trace, warn};
