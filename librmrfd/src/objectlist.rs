@@ -26,6 +26,11 @@ impl ObjectList {
         }
     }
 
+    /// Insert an object, only when not already present.
+    pub fn contains(&self, object: Arc<ObjectPath>) -> bool {
+        self.0.binary_search(&object).is_ok()
+    }
+
     /// Iterator over all stored objects in sorted order.
     pub fn iter(&mut self) -> std::slice::Iter<'_, Arc<ObjectPath>> {
         self.0.iter()

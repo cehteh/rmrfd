@@ -6,6 +6,7 @@
 mod rmrfd;
 pub use rmrfd::Rmrfd;
 
+mod inventory;
 mod objectlist;
 
 #[cfg(test)]
