@@ -6,6 +6,8 @@
 mod rmrfd;
 pub use rmrfd::Rmrfd;
 
+mod objectlist;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
