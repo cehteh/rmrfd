@@ -9,7 +9,7 @@ repository = "https://github.com/cehteh/rmrfd.git"
 keywords = ["filesystem", "daemon", "unix"]
 
 [dependencies]
-dirinventory = "1.0.0-beta2"
+dirinventory = "1.0.0-beta3"
 log = "0.4"
 crossbeam-channel = "0.5"
 parking_lot = "0.11"

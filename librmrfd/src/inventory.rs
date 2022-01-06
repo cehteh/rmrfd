@@ -101,14 +101,14 @@ impl Inventory {
     /// Insert existing path (on filesystem) into the inventory. Retrives the metadata from the
     /// path.  Will result in an error when the metadata of the given path can't be retrieved.
     fn insert(&self, path: Arc<ObjectPath>) -> io::Result<()> {
-        let metadata = to_metadata(&path)?;
+        let metadata = path.metadata()?;
         self.insert_with_metadata(path, &metadata)
     }
 
     /// Remove existing path (on filesystem) from the inventory. Retrives the metadata from the
     /// path.  Will result in an error when the metadata of the given path can't be retrieved.
     fn remove(&self, path: Arc<ObjectPath>) -> io::Result<()> {
-        let metadata = to_metadata(&path)?;
+        let metadata = path.metadata()?;
         self.remove_with_metadata(path, &metadata)
     }
 
@@ -116,19 +116,10 @@ impl Inventory {
     /// metadata from the path.  Will return false when the metadata of the given path can't be
     /// retrieved.
     fn contains(&self, path: Arc<ObjectPath>) -> bool {
-        if let Ok(metadata) = to_metadata(&path) {
-            self.contains_with_metadata(path, &metadata)
-        } else {
-            false
-        }
+        path.metadata()
+            .and_then(|metadata| Ok(self.contains_with_metadata(path, &metadata)))
+            .unwrap_or(false)
     }
-}
-
-/// Helper function return the metadata of an objectpath
-// TODO: make member of ObjectPath?
-fn to_metadata(path: &ObjectPath) -> io::Result<openat::Metadata> {
-    let full_path = path.to_pathbuf().canonicalize()?;
-    Ok(openat::Dir::open(full_path.parent().unwrap())?.metadata(full_path.file_name().unwrap())?)
 }
 
 /// Objects are looked up by size and inode number combined here.
