@@ -1,10 +1,14 @@
 use std::sync::Arc;
 use std::io;
 use std::collections::{BTreeMap, HashMap};
+use std::thread;
 
 use parking_lot::{Mutex, RwLock};
-use dirinventory::{openat, ObjectPath};
+use dirinventory::{openat, InventoryEntryMessage, ObjectPath};
+use crossbeam_channel::Receiver;
 use openat::{metadata_types, Metadata};
+#[allow(unused_imports)]
+use log::{debug, error, info, trace, warn};
 
 use crate::objectlist::ObjectList;
 
@@ -21,17 +25,52 @@ pub struct Inventory {
 
 impl Inventory {
     /// Create a new Inventory with pow(2, shards_log2) shards (power of two).
-    pub fn new(shards_log2: u8) -> Inventory {
+    pub fn new(
+        shards_log2: u8,
+        num_threads: usize,
+        receiver: Receiver<InventoryEntryMessage>,
+    ) -> Arc<Inventory> {
         let n = 1usize << shards_log2;
 
-        Inventory {
+        let inventory = Arc::new(Inventory {
             shards:     (0..n).map(|_| Mutex::new(HashMap::new())).collect(),
             index_mask: n - 1,
-        }
+        });
+
+        let receiver = Arc::new(receiver);
+        (0..num_threads).for_each(|n| {
+            let receiver = receiver.clone();
+            let inventory = inventory.clone();
+            thread::Builder::new()
+                .name(format!("inventory/{}", n))
+                .spawn(move || {
+                    debug!("thread started");
+                    loop {
+                        use crate::inventory::InventoryEntryMessage::*;
+                        match receiver.recv().unwrap() {
+                            Metadata(path, metadata) => {
+                                inventory.insert_with_metadata(path, &metadata);
+                            }
+                            Entry(_, _, _) => { /* ignored, unused */ }
+                            EndOfDirectory(_) => { /*ignored*/ }
+                            Err(DynError) => { /*TODO: pass error up */ }
+                            Done => {
+                                // TODO: block feed, start fastrmrf
+                            }
+                        }
+                    }
+                });
+        });
+
+        inventory
     }
 
     // Insert the given path, using the supplied metadata to determine where the path will be stored.
-    fn insert_with_metadata(&self, path: Arc<ObjectPath>, metadata: &Metadata) -> io::Result<()> {
+    pub fn insert_with_metadata(
+        &self,
+        path: Arc<ObjectPath>,
+        metadata: &Metadata,
+    ) -> io::Result<()> {
         let key = ObjectKey::try_from(metadata).ok_or(io::Error::from(io::ErrorKind::NotFound))?;
 
         // lock shard
@@ -59,7 +98,11 @@ impl Inventory {
     }
 
     /// Remove the given path under the supplied metadata from the inventory.
-    fn remove_with_metadata(&self, path: Arc<ObjectPath>, metadata: &Metadata) -> io::Result<()> {
+    pub fn remove_with_metadata(
+        &self,
+        path: Arc<ObjectPath>,
+        metadata: &Metadata,
+    ) -> io::Result<()> {
         let key = ObjectKey::try_from(metadata).ok_or(io::Error::from(io::ErrorKind::NotFound))?;
 
         let shard = self.shards[key.bucket_hash() & self.index_mask].lock();
@@ -83,7 +126,7 @@ impl Inventory {
     }
 
     /// Checks if the given path/metadata exists in the inventory.
-    fn contains_with_metadata(&self, path: Arc<ObjectPath>, metadata: &Metadata) -> bool {
+    pub fn contains_with_metadata(&self, path: Arc<ObjectPath>, metadata: &Metadata) -> bool {
         ObjectKey::try_from(metadata)
             .and_then(|key| {
                 let hash = key.bucket_hash();
@@ -100,14 +143,14 @@ impl Inventory {
 
     /// Insert existing path (on filesystem) into the inventory. Retrives the metadata from the
     /// path.  Will result in an error when the metadata of the given path can't be retrieved.
-    fn insert(&self, path: Arc<ObjectPath>) -> io::Result<()> {
+    pub fn insert(&self, path: Arc<ObjectPath>) -> io::Result<()> {
         let metadata = path.metadata()?;
         self.insert_with_metadata(path, &metadata)
     }
 
     /// Remove existing path (on filesystem) from the inventory. Retrives the metadata from the
     /// path.  Will result in an error when the metadata of the given path can't be retrieved.
-    fn remove(&self, path: Arc<ObjectPath>) -> io::Result<()> {
+    pub fn remove(&self, path: Arc<ObjectPath>) -> io::Result<()> {
         let metadata = path.metadata()?;
         self.remove_with_metadata(path, &metadata)
     }
@@ -115,7 +158,7 @@ impl Inventory {
     /// Check if an existing path (on filesystem) exists in the inventory. Retrives the
     /// metadata from the path.  Will return false when the metadata of the given path can't be
     /// retrieved.
-    fn contains(&self, path: Arc<ObjectPath>) -> bool {
+    pub fn contains(&self, path: Arc<ObjectPath>) -> bool {
         path.metadata()
             .and_then(|metadata| Ok(self.contains_with_metadata(path, &metadata)))
             .unwrap_or(false)
@@ -173,12 +216,17 @@ impl PartialEq for ObjectKey {
 
 #[cfg(test)]
 mod tests {
+    use crossbeam_channel::bounded;
+
     use super::*;
 
     #[test]
     fn smoke() {
         crate::tests::init_env_logging();
-        let inventory = Inventory::new(1);
+
+        let (_sender, receiver) = bounded(0);
+        let inventory = Inventory::new(1, 0, receiver);
+
         inventory.insert(ObjectPath::new("Cargo.toml"));
         assert!(inventory.contains(ObjectPath::new("Cargo.toml")));
         assert!(!inventory.contains(ObjectPath::new("src/lib.rs")));
@@ -187,7 +235,9 @@ mod tests {
     #[test]
     fn insert_remove() {
         crate::tests::init_env_logging();
-        let inventory = Inventory::new(4);
+
+        let (_sender, receiver) = bounded(0);
+        let inventory = Inventory::new(4, 0, receiver);
 
         inventory.insert(ObjectPath::new("Cargo.toml"));
         inventory.insert(ObjectPath::new("Cargo.toml"));
