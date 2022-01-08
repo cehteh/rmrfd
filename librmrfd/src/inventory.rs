@@ -70,13 +70,11 @@ impl Inventory {
     fn fastrmrf_files(&self) {
         for device in self.devices() {
             // find/arc-clone all maps for each device
-            let mut per_device = Vec::new();
-            for shard in &self.shards {
-                if let Some(device_map) = shard.lock().get(&device) {
-                    let device_map = device_map.clone();
-                    per_device.push(device_map);
-                }
-            }
+            let per_device: Vec<_> = self
+                .shards
+                .iter()
+                .filter_map(|s| s.lock().get(&device).map(|m| m.clone()))
+                .collect();
 
             // get locks on all objectmaps for device
             let mut maplocks: Vec<_> = per_device.iter().map(|lock| lock.write()).collect();
