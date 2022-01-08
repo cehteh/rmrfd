@@ -26,6 +26,11 @@ impl ObjectList {
         }
     }
 
+    /// Return the first element of an Objectlist
+    pub fn first(&self) -> Option<&Arc<ObjectPath>> {
+        self.0.first()
+    }
+
     /// Insert an object, only when not already present.
     pub fn contains(&self, object: Arc<ObjectPath>) -> bool {
         self.0.binary_search(&object).is_ok()
@@ -34,6 +39,14 @@ impl ObjectList {
     /// Iterator over all stored objects in sorted order.
     pub fn iter(&mut self) -> std::slice::Iter<'_, Arc<ObjectPath>> {
         self.0.iter()
+    }
+
+    /// Removes all elements for which 'f' returns true, keeps all other.
+    pub fn ditch<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&Arc<ObjectPath>) -> bool,
+    {
+        self.0.retain(|x| !f(x))
     }
 
     /// Returns 'true' when at least one object is stored.

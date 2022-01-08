@@ -85,10 +85,24 @@ impl Inventory {
                 .map(|l| l.iter_mut().rev())
                 .kmerge_by(|(a, _), (b, _)| a.blocks > b.blocks);
 
-            todo!();
-            // for item in merged_iterator {
-            //     println!("ITEM: {:?}", item.0.blocks);
-            // }
+            // filter all objects which have all their hardlinks collected in inventory
+            merged_iterator
+                .filter_map(|(_, object_list)| {
+                    (object_list
+                        .first()
+                        .and_then(|f| f.metadata().ok())
+                        .and_then(|m| m.nlink())
+                        == Some(object_list.len() as metadata_types::nlink_t))
+                    .then(|| object_list)
+                })
+                .for_each(|object_list| {
+                    object_list.ditch(|object| {
+                        // TODO: REALLY DELETE
+                        println!("delete {:?}", object);
+                        // PLANNED: accounting, sum up memory freed
+                        true
+                    });
+                });
         }
     }
 
