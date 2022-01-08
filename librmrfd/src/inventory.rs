@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::io;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::thread;
 
 use parking_lot::{Mutex, RwLock};
@@ -9,6 +9,7 @@ use crossbeam_channel::Receiver;
 use openat::{metadata_types, Metadata};
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
+use itertools::Itertools;
 
 use crate::objectlist::ObjectList;
 
@@ -55,7 +56,8 @@ impl Inventory {
                             EndOfDirectory(_) => { /*ignored*/ }
                             Err(DynError) => { /*TODO: pass error up */ }
                             Done => {
-                                // TODO: block feed, start fastrmrf
+                                // TODO: send message block feed, start fastrmrf
+                                inventory.fastrmrf_files();
                             }
                         }
                     }
@@ -63,6 +65,46 @@ impl Inventory {
         });
 
         inventory
+    }
+
+    fn fastrmrf_files(&self) {
+        for device in self.devices() {
+            // find/arc-clone all maps for each device
+            let mut per_device = Vec::new();
+            for shard in &self.shards {
+                if let Some(device_map) = shard.lock().get(&device) {
+                    let device_map = device_map.clone();
+                    per_device.push(device_map);
+                }
+            }
+
+            // get locks on all objectmaps for device
+            let mut maplocks: Vec<_> = per_device.iter().map(|lock| lock.write()).collect();
+
+            // create a merge sorted iterator in descending order
+            let merged_iterator = maplocks
+                .iter_mut()
+                .map(|l| l.iter_mut().rev())
+                .kmerge_by(|(a, _), (b, _)| a.blocks > b.blocks);
+
+            todo!();
+            // for item in merged_iterator {
+            //     println!("ITEM: {:?}", item.0.blocks);
+            // }
+        }
+    }
+
+    /// Returns a HashSet of all known device identifiers.
+    pub fn devices(&self) -> HashSet<metadata_types::dev_t> {
+        let mut devices = HashSet::new();
+
+        for shard in &self.shards {
+            for device in shard.lock().keys() {
+                devices.insert(*device);
+            }
+        }
+
+        devices
     }
 
     // Insert the given path, using the supplied metadata to determine where the path will be stored.
