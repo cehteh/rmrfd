@@ -103,6 +103,11 @@ impl Inventory {
                         true
                     });
                 });
+
+            // prune all unused objectmaps with empty objectlists
+            maplocks
+                .iter_mut()
+                .for_each(|objectmap| objectmap.retain(|_, objectlist| !objectlist.is_empty()));
         }
     }
 
