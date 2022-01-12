@@ -30,22 +30,24 @@ impl Rmrfd {
 
 /// Builder for constructing the daemon
 pub struct RmrfdBuilder {
-    gatherer_builder: GathererBuilder,
-    min_blockcount:   metadata_types::blksize_t,
-    rmrf_dirs:        HashMap<Arc<ObjectPath>, metadata_types::dev_t>,
-    rmrf_armed:       bool,
+    gatherer_builder:     GathererBuilder,
+    min_blockcount:       metadata_types::blksize_t,
+    early_delete_percent: metadata_types::blksize_t,
+    rmrf_dirs:            HashMap<Arc<ObjectPath>, metadata_types::dev_t>,
+    rmrf_armed:           bool,
 }
 
 impl Default for RmrfdBuilder {
     /// Create a RmrfdBuilder with reasonable defaults.
     fn default() -> Self {
         RmrfdBuilder {
-            gatherer_builder: Gatherer::build(),
+            gatherer_builder:     Gatherer::build(),
             /// Filter for files bigger than 32kb smaller ones would only bloat memory and
             /// give no much benefit when deleting in size order.
-            min_blockcount:   64,
-            rmrf_dirs:        HashMap::new(),
-            rmrf_armed:       false,
+            min_blockcount:       512,
+            early_delete_percent: 50,
+            rmrf_dirs:            HashMap::new(),
+            rmrf_armed:           false,
         }
     }
 }
@@ -78,6 +80,14 @@ impl RmrfdBuilder {
     pub fn with_min_blockcount(mut self, c: metadata_types::blksize_t) -> Self {
         self.rmrf_armed = false;
         self.min_blockcount = c;
+        self
+    }
+
+    /// Early deletion happens when a file has only one hardlink and is larger than this much
+    /// percent of the largest file seen so far.
+    pub fn with_early_delete_percent(mut self, c: metadata_types::blksize_t) -> Self {
+        self.rmrf_armed = false;
+        self.early_delete_percent = c;
         self
     }
 
@@ -149,7 +159,10 @@ impl RmrfdBuilder {
             },
         ))?;
 
-        let inventory = Inventory::new(inventory_gatherer.channels_as_vec());
+        let inventory = Inventory::new(
+            inventory_gatherer.channels_as_vec(),
+            self.early_delete_percent,
+        );
 
         // create fastrmrf instance
         // slowrmrf

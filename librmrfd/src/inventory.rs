@@ -20,12 +20,15 @@ pub struct Inventory {
 
 impl Inventory {
     /// Create a new Inventory.
-    pub fn new(channels: Vec<Arc<Receiver<InventoryEntryMessage>>>) -> io::Result<Arc<Inventory>> {
+    pub fn new(
+        channels: Vec<Arc<Receiver<InventoryEntryMessage>>>,
+        early_delete_percent: metadata_types::blkcnt_t,
+    ) -> io::Result<Arc<Inventory>> {
         (0..channels.len()).try_for_each(|n| -> io::Result<()> {
             let receiver = channels[n].clone();
             let mut inventory_map = InventoryMap::new();
 
-            let max_blkcnt: metadata_types::blkcnt_t = 0;
+            let mut max_blkcnt_sofar: metadata_types::blkcnt_t = 0;
 
             thread::Builder::new()
                 .name(format!("inventory/{}", n))
@@ -36,9 +39,24 @@ impl Inventory {
                         match receiver.recv().unwrap(/*TODO: thread exit */) {
                             Metadata { path, metadata, .. } => {
                                 trace!("got metadata for: {:?}", path);
-                                // PLANNED: early delete, if nlinks == 1 && blkcnt =>
-                                // max_blkcnt_so_far/2
-                                inventory_map.insert_with_metadata(path, &metadata);
+
+                                let early_done = if metadata.nlink().unwrap_or(0) == 1 {
+                                    let blkcnt = metadata.blocks().unwrap_or(0);
+                                    if blkcnt >= max_blkcnt_sofar * early_delete_percent / 100 {
+                                        max_blkcnt_sofar = std::cmp::max(blkcnt, max_blkcnt_sofar);
+                                        // TODO: REALLY DELETE
+                                        trace!("early delete {:?}", path);
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                if !early_done {
+                                    inventory_map.insert_with_metadata(path, &metadata).ok(); //TODO: pass error up
+                                };
                             }
                             EndOfDirectory { .. } | Entry { .. } => { /* ignored, unused */ }
                             Err { path, error } => { /*TODO: pass error up */ }
@@ -113,9 +131,6 @@ impl InventoryMap {
 
         devices
     }
-
-    // PLANNED: insert/remove/contains with shard parameter, then one thread per shard can
-    //          fill the inventory
 
     // Insert the given path, using the supplied metadata to determine where the path will be stored.
     pub fn insert_with_metadata(
